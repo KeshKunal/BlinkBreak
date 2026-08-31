@@ -6,6 +6,7 @@ import {
 import { createDefaultTimer } from "../shared/defaults";
 import {
   loadAppSnapshot,
+  loadAppSnapshotForStartup,
   saveAppSnapshot,
   saveSettings,
   saveTimer,
@@ -14,7 +15,11 @@ import type { ActivitySnapshot, AppSnapshot, TimerState } from "../shared/types"
 import { sanitizeSettings } from "../shared/validation";
 import { ContentBridge } from "./content-bridge";
 import { assessInterruption } from "./interruption-engine";
-import { recoverTimer, transitionTimer } from "./timer-engine";
+import {
+  completeBreakInSnapshot,
+  recoverAppSnapshot,
+  transitionTimer,
+} from "./timer-engine";
 
 const SCHEDULER_ALARM = "blinkbreak-scheduler";
 
@@ -81,9 +86,10 @@ export class BlinkBreakController {
   private async initialize(): Promise<void> {
     if (this.initialized) return;
     await this.content.syncRegistration();
-    const state = await loadAppSnapshot();
-    state.timer = recoverTimer(state.timer, state.settings);
-    await saveAppSnapshot(state);
+    const now = Date.now();
+    const startup = await loadAppSnapshotForStartup(now);
+    const state = recoverAppSnapshot(startup.state, now);
+    if (startup.needsPersistence || state !== startup.state) await saveAppSnapshot(state);
     await this.syncRuntime(state);
     if (["prompt_ready", "break_active"].includes(state.timer.status)) {
       await this.content.showOnActiveTab(state);
@@ -115,7 +121,6 @@ export class BlinkBreakController {
         if (sender.tab?.id === undefined || sender.tab.active !== true) {
           return { ok: false, error: "Activity update rejected" };
         }
-        this.content.rememberActivity(sender.tab.id, message.snapshot);
         const state = await loadAppSnapshot();
         if (state.timer.status === "waiting_for_pause") {
           const assessment = assessInterruption(
@@ -230,22 +235,10 @@ export class BlinkBreakController {
   }
 
   private async completeBreak(elapsedSeconds: number): Promise<BackgroundResponse> {
-    const state = await loadAppSnapshot();
-    if (state.timer.status !== "break_active") return { ok: true, state };
+    const current = await loadAppSnapshot();
+    if (current.timer.status !== "break_active") return { ok: true, state: current };
     const now = Date.now();
-    const uninterruptedMs = Math.max(0, now - state.timer.sessionStartedAt);
-    state.timer = transitionTimer(state.timer, { type: "COMPLETE" }, state.settings, now);
-    state.stats.completed += 1;
-    state.stats.totalBreakSeconds += Math.min(
-      state.settings.breakDurationSeconds,
-      Math.max(0, elapsedSeconds),
-    );
-    state.stats.totalCompletedIntervalMs += uninterruptedMs;
-    state.stats.longestUninterruptedMs = Math.max(
-      state.stats.longestUninterruptedMs,
-      uninterruptedMs,
-    );
-    state.stats.focusSessions += 1;
+    const state = completeBreakInSnapshot(current, elapsedSeconds, now);
     await saveAppSnapshot(state);
     await this.syncRuntime(state);
     return { ok: true, state };
@@ -323,9 +316,13 @@ export class BlinkBreakController {
       case "prompt_ready":
         break;
     }
+    const existing = await chrome.alarms.get(SCHEDULER_ALARM);
     if (when !== null) {
-      await chrome.alarms.create(SCHEDULER_ALARM, { when: Math.max(Date.now() + 500, when) });
-    } else {
+      const scheduledTime = Math.max(Date.now() + 500, when);
+      if (!existing || Math.abs(existing.scheduledTime - scheduledTime) > 250) {
+        await chrome.alarms.create(SCHEDULER_ALARM, { when: scheduledTime });
+      }
+    } else if (existing) {
       await chrome.alarms.clear(SCHEDULER_ALARM);
     }
   }

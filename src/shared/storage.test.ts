@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { DEFAULT_SETTINGS } from "./defaults";
-import { loadAppSnapshot, saveSettings } from "./storage";
+import { createDefaultStats, createDefaultTimer, DEFAULT_SETTINGS } from "./defaults";
+import { loadAppSnapshot, loadAppSnapshotForStartup, saveSettings } from "./storage";
 
 function installStorageMock(initial: Record<string, unknown> = {}) {
   const values = { ...initial };
@@ -39,5 +39,23 @@ describe("local storage", () => {
     expect(restored.settings.breakIntervalMinutes).toBe(5);
     expect(restored.settings.theme).toBe("system");
     expect(restored.timer.status).toBe("counting");
+  });
+
+  it("avoids startup writes when persisted state is already canonical", async () => {
+    const now = 1_800_000_000_000;
+    installStorageMock({
+      settings: { ...DEFAULT_SETTINGS },
+      timer: createDefaultTimer(now, DEFAULT_SETTINGS),
+      stats: createDefaultStats(new Date(now)),
+    });
+
+    const restored = await loadAppSnapshotForStartup(now);
+    expect(restored.needsPersistence).toBe(false);
+  });
+
+  it("marks missing or repaired startup state for persistence", async () => {
+    installStorageMock({ settings: { breakIntervalMinutes: -10 } });
+    const restored = await loadAppSnapshotForStartup(1_800_000_000_000);
+    expect(restored.needsPersistence).toBe(true);
   });
 });

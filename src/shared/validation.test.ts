@@ -26,4 +26,13 @@ describe("settings validation", () => {
     expect(timer.status).toBe("counting");
     expect(timer.nextBreakDueAt).toBeGreaterThan(10);
   });
+
+  it("repairs an active break that lost its start timestamp", () => {
+    const timer = sanitizeTimer(
+      { status: "break_active", activeBreakStartedAt: null, lastTransitionAt: 500 },
+      DEFAULT_SETTINGS,
+      1_000,
+    );
+    expect(timer.activeBreakStartedAt).toBe(500);
+  });
 });

@@ -90,6 +90,13 @@ export function sanitizeTimer(
   const status = TIMER_STATUSES.includes(source.status as TimerStatus)
     ? (source.status as TimerStatus)
     : fallback.status;
+  const lastTransitionAt = timestamp(source.lastTransitionAt, fallback.lastTransitionAt);
+  const activeBreakStartedAt =
+    status === "break_active"
+      ? source.activeBreakStartedAt === null || source.activeBreakStartedAt === undefined
+        ? lastTransitionAt
+        : timestamp(source.activeBreakStartedAt, lastTransitionAt)
+      : null;
 
   return {
     status,
@@ -107,16 +114,13 @@ export function sanitizeTimer(
       source.nextEvaluationAt === null || source.nextEvaluationAt === undefined
         ? null
         : timestamp(source.nextEvaluationAt, now),
-    activeBreakStartedAt:
-      source.activeBreakStartedAt === null || source.activeBreakStartedAt === undefined
-        ? null
-        : timestamp(source.activeBreakStartedAt, now),
+    activeBreakStartedAt,
     remainingWhenPausedMs:
       source.remainingWhenPausedMs === null || source.remainingWhenPausedMs === undefined
         ? null
         : finiteNumber(source.remainingWhenPausedMs, 0, 0, 120 * 60_000),
     consecutiveDeferrals: Math.round(finiteNumber(source.consecutiveDeferrals, 0, 0, 99)),
-    lastTransitionAt: timestamp(source.lastTransitionAt, fallback.lastTransitionAt),
+    lastTransitionAt,
   };
 }
 

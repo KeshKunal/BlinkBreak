@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { createDefaultTimer, DEFAULT_SETTINGS, MINUTE_MS } from "../shared/defaults";
-import { recoverTimer, transitionTimer } from "./timer-engine";
+import {
+  createDefaultStats,
+  createDefaultTimer,
+  DEFAULT_SETTINGS,
+  MINUTE_MS,
+} from "../shared/defaults";
+import { recoverAppSnapshot, recoverTimer, transitionTimer } from "./timer-engine";
 
 describe("timer engine", () => {
   const now = 1_800_000_000_000;
@@ -71,5 +76,26 @@ describe("timer engine", () => {
     const recovered = recoverTimer(timer, DEFAULT_SETTINGS, now + 30_000);
     expect(recovered.status).toBe("counting");
     expect(recovered.nextBreakDueAt).toBe(now + 20_000 + 15 * MINUTE_MS);
+  });
+
+  it("preserves completed-break statistics across a service-worker restart", () => {
+    const active = {
+      ...createDefaultTimer(now, DEFAULT_SETTINGS),
+      status: "break_active" as const,
+      activeBreakStartedAt: now + 15 * MINUTE_MS,
+    };
+    const recovered = recoverAppSnapshot(
+      {
+        settings: DEFAULT_SETTINGS,
+        timer: active,
+        stats: createDefaultStats(new Date(now)),
+      },
+      active.activeBreakStartedAt + 30_000,
+    );
+
+    expect(recovered.timer.status).toBe("counting");
+    expect(recovered.stats.completed).toBe(1);
+    expect(recovered.stats.totalBreakSeconds).toBe(20);
+    expect(recovered.stats.totalCompletedIntervalMs).toBe(15 * MINUTE_MS);
   });
 });

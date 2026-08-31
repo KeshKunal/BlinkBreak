@@ -1,5 +1,5 @@
 import { MINUTE_MS } from "../shared/defaults";
-import type { TimerState, UserSettings } from "../shared/types";
+import type { AppSnapshot, TimerState, UserSettings } from "../shared/types";
 
 export type TimerEvent =
   | { type: "DUE" }
@@ -140,4 +140,47 @@ export function recoverTimer(
   if (state.status === "waiting_for_pause" && (state.nextEvaluationAt ?? 0) > now) return state;
   if (["counting", "deferred"].includes(state.status) && state.nextBreakDueAt > now) return state;
   return transitionTimer(state, { type: "DUE" }, settings, now);
+}
+
+export function completeBreakInSnapshot(
+  state: AppSnapshot,
+  elapsedSeconds: number,
+  completedAt = Date.now(),
+): AppSnapshot {
+  if (state.timer.status !== "break_active") return state;
+  const focusEndedAt = state.timer.activeBreakStartedAt ?? completedAt;
+  const uninterruptedMs = Math.max(0, focusEndedAt - state.timer.sessionStartedAt);
+  return {
+    ...state,
+    timer: transitionTimer(state.timer, { type: "COMPLETE" }, state.settings, completedAt),
+    stats: {
+      ...state.stats,
+      completed: state.stats.completed + 1,
+      totalBreakSeconds:
+        state.stats.totalBreakSeconds +
+        Math.min(state.settings.breakDurationSeconds, Math.max(0, elapsedSeconds)),
+      totalCompletedIntervalMs: state.stats.totalCompletedIntervalMs + uninterruptedMs,
+      longestUninterruptedMs: Math.max(state.stats.longestUninterruptedMs, uninterruptedMs),
+      focusSessions: state.stats.focusSessions + 1,
+    },
+  };
+}
+
+export function recoverAppSnapshot(state: AppSnapshot, now = Date.now()): AppSnapshot {
+  const startedAt = state.timer.activeBreakStartedAt;
+  if (state.timer.status === "break_active" && startedAt !== null) {
+    const completedAt = startedAt + state.settings.breakDurationSeconds * 1_000;
+    if (completedAt <= now) {
+      const completed = completeBreakInSnapshot(
+        state,
+        state.settings.breakDurationSeconds,
+        completedAt,
+      );
+      const timer = recoverTimer(completed.timer, completed.settings, now);
+      return timer === completed.timer ? completed : { ...completed, timer };
+    }
+  }
+
+  const timer = recoverTimer(state.timer, state.settings, now);
+  return timer === state.timer ? state : { ...state, timer };
 }

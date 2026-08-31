@@ -15,12 +15,31 @@ function storageArea(): chrome.storage.StorageArea {
   return chrome.storage.local;
 }
 
-export async function loadAppSnapshot(now = Date.now()): Promise<AppSnapshot> {
+async function readAppSnapshot(now: number): Promise<{
+  state: AppSnapshot;
+  stored: Record<string, unknown>;
+}> {
   const stored = await storageArea().get(Object.values(STORAGE_KEYS));
   const settings = sanitizeSettings(stored[STORAGE_KEYS.settings] ?? DEFAULT_SETTINGS);
   const timer = sanitizeTimer(stored[STORAGE_KEYS.timer], settings, now);
   const stats = sanitizeStats(stored[STORAGE_KEYS.stats], new Date(now));
-  return { settings, timer, stats };
+  return { state: { settings, timer, stats }, stored };
+}
+
+export async function loadAppSnapshot(now = Date.now()): Promise<AppSnapshot> {
+  return (await readAppSnapshot(now)).state;
+}
+
+export async function loadAppSnapshotForStartup(now = Date.now()): Promise<{
+  state: AppSnapshot;
+  needsPersistence: boolean;
+}> {
+  const { state, stored } = await readAppSnapshot(now);
+  const needsPersistence =
+    JSON.stringify(stored[STORAGE_KEYS.settings]) !== JSON.stringify(state.settings) ||
+    JSON.stringify(stored[STORAGE_KEYS.timer]) !== JSON.stringify(state.timer) ||
+    JSON.stringify(stored[STORAGE_KEYS.stats]) !== JSON.stringify(state.stats);
+  return { state, needsPersistence };
 }
 
 export async function saveSettings(settings: UserSettings): Promise<void> {
