@@ -16,7 +16,7 @@ No server exists. Chrome local storage is the only durable data store.
 - `src/background/timer-engine.ts` is the pure break-state reducer and restart recovery logic.
 - `src/background/interruption-engine.ts` is the pure, interpretable interruption score.
 - `src/background/controller.ts` serializes extension events, persists transitions, schedules alarms, and coordinates tabs.
-- `src/background/content-bridge.ts` owns optional script registration, tab messaging, overlay delivery, and ephemeral activity snapshots.
+- `src/background/content-bridge.ts` owns optional script registration, tab messaging, and overlay delivery. Activity snapshots are request/response values and are not cached by the worker.
 - `src/content/activity-tracker.ts` collects timestamps and booleans only. Signals remain in the page during ordinary browsing; background reporting is enabled only while a due break is waiting for a natural pause, then sends one explicit quiet signal after 15.5 seconds.
 - `src/content/break-surface.ts` owns the prompt, guided break, completion, focus trap, and Shadow DOM design system.
 - `src/shared/storage.ts` is the typed `chrome.storage.local` boundary.
@@ -55,7 +55,9 @@ The worker never relies on a long-lived interval. Each state produces at most on
 - `break_active`: wake at the expected completion timestamp;
 - `paused` and `prompt_ready`: no timer alarm is necessary.
 
-Durable timestamps include session start, next due time, deferral, next evaluation, break start, last completion, and pause remainder. On every worker start, `recoverTimer()` compares those timestamps with the current clock and enters the correct state.
+Durable timestamps include session start, next due time, deferral, next evaluation, break start, last completion, and pause remainder. On every worker start, `recoverAppSnapshot()` compares those timestamps with the current clock and enters the correct state. If the worker or browser was unavailable when a break completed, recovery records that completion and its daily statistics exactly once.
+
+Startup only repairs storage when persisted data is missing, malformed, rolled into a new day, or changes during recovery. Existing alarms are reused when their scheduled timestamp is already correct.
 
 ## Adaptive interruption score
 
@@ -78,7 +80,7 @@ When the script cannot run (for example, a browser-owned page), the engine degra
 
 The install manifest contains no required host patterns and no static content script. After informed consent, BlinkBreak requests `scripting` plus ordinary HTTP/HTTPS origins, registers the packaged `content.js`, and injects only the active eligible tab; registered injection handles later navigations. A global isolated-world marker prevents duplicate listeners.
 
-Tab injection and settings broadcasts are bounded to avoid startup spikes with large tab sets. The service worker forgets transient activity when a tab closes, clears snapshot timeouts promptly, and replaces one-shot alarms in place instead of clearing and recreating them.
+Tab injection and settings broadcasts are bounded to avoid startup spikes with large tab sets. The service worker clears snapshot timeouts promptly, does not retain activity history, and replaces one-shot alarms only when their target changes.
 
 Turning adaptive timing off stops the activity tracker in every injected tab. Removing page access unregisters the dynamic script; fixed scheduling still works.
 
@@ -100,8 +102,12 @@ All reads pass through sanitizers. A malformed field falls back or clamps indepe
 
 - Interaction capture is event-driven.
 - Pointer movement is sampled at most once every two seconds.
-- Activity updates are sent at most every ten seconds, plus context and quiet-state changes.
+- Scroll activity is sampled at most twice per second, and rolling event windows are pruned incrementally.
+- Ordinary activity stays inside the page. The worker receives a snapshot only at a due-break evaluation or a single quiet signal while waiting for a pause.
+- Playing media is tracked through weak references, so detached page elements cannot be retained.
 - The worker serializes mutations through one promise queue to avoid alarm/message races.
 - There is no continuous DOM scan, background busy loop, network request, or telemetry client.
 - Repeated active-break messages are idempotent, so activity updates cannot remount or flash the overlay.
-- Eye, pupil, and breathing motion use transform-only animations and stop under reduced-motion preferences.
+- Visible countdowns derive from persisted timestamps; no background counter is kept alive.
+- Popup clock updates are isolated from static cards and stop outside live timer states.
+- Eye, pupil, and breathing motion use transform-only animations and stop under reduced-motion preferences or whenever their page becomes hidden.

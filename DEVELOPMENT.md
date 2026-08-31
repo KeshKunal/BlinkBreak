@@ -53,8 +53,10 @@ Unit tests target the deterministic core:
 - high/low activity, fullscreen/media, natural pause, and high-to-low transitions;
 - default and malformed settings recovery;
 - valid/invalid message payloads;
-- settings persistence and malformed local storage.
-- activity reporting remains silent during ordinary browsing, waits for a quiet window, and cancels cleanly.
+- settings persistence and malformed local storage;
+- activity reporting remains silent during ordinary browsing, waits for a quiet window, and cancels cleanly;
+- rolling activity memory, detached media cleanup, hidden animation suspension, and orphaned timer cleanup;
+- service-worker restart completion, statistics recovery, and canonical startup storage detection.
 
 Chrome API orchestration is intentionally thin around those pure modules. Always supplement automated checks with the extension acceptance pass below.
 
@@ -75,6 +77,7 @@ Chrome API orchestration is intentionally thin around those pure modules. Always
 13. Inspect `chrome.storage.local` and verify it contains only `settings`, `timer`, and aggregate `stats`.
 14. Inspect the service worker network panel and verify there are no external requests.
 15. With smart timing enabled and no break due, inspect the service worker and verify page activity does not wake it periodically.
+16. Start a break, switch tabs for several seconds, and verify animations/ticks pause while hidden and resume at the correct timestamp-derived remaining time.
 
 ## Release checklist
 
