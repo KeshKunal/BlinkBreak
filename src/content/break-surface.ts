@@ -31,6 +31,8 @@ export class BreakSurface {
   private root: ShadowRoot | null = null;
   private state: AppSnapshot | null = null;
   private tick: number | undefined;
+  private delayedTasks = new Set<number>();
+  private activeUpdate: (() => number) | null = null;
   private keyHandler: ((event: KeyboardEvent) => void) | null = null;
   private previousFocus: Element | null = null;
   private completed = false;
@@ -38,10 +40,13 @@ export class BreakSurface {
   private activeBreakStartedAt: number | null = null;
 
   showPrompt(state: AppSnapshot): void {
-    this.state = state;
-    if (this.host && this.view === "prompt") return;
+    if (this.host && this.view === "prompt") {
+      this.state = state;
+      return;
+    }
     this.completed = false;
     if (!this.host) this.mount();
+    this.state = state;
     this.view = "prompt";
     this.renderPrompt();
   }
@@ -50,10 +55,13 @@ export class BreakSurface {
     const startedAt = state.timer.activeBreakStartedAt;
     const alreadyShowing =
       this.host !== null && this.view === "active" && this.activeBreakStartedAt === startedAt;
-    this.state = state;
-    if (alreadyShowing) return;
+    if (alreadyShowing) {
+      this.state = state;
+      return;
+    }
     this.completed = false;
     if (!this.host) this.mount();
+    this.state = state;
     this.view = "active";
     this.activeBreakStartedAt = startedAt;
     if (playSound) this.playSoftChime();
@@ -61,21 +69,23 @@ export class BreakSurface {
   }
 
   hide(): void {
-    if (this.tick !== undefined) window.clearInterval(this.tick);
-    this.tick = undefined;
+    this.clearViewTasks();
     if (this.keyHandler) document.removeEventListener("keydown", this.keyHandler, true);
+    document.removeEventListener("visibilitychange", this.onVisibilityChange);
     this.keyHandler = null;
     this.host?.remove();
     this.host = null;
     this.root = null;
     this.view = null;
     this.activeBreakStartedAt = null;
-    if (this.previousFocus instanceof HTMLElement) this.previousFocus.focus({ preventScroll: true });
+    this.state = null;
+    if (this.previousFocus instanceof HTMLElement && this.previousFocus.isConnected) {
+      this.previousFocus.focus({ preventScroll: true });
+    }
     this.previousFocus = null;
   }
 
   private mount(): void {
-    this.hide();
     this.previousFocus = document.activeElement;
     this.host = element("div");
     this.host.id = SURFACE_ID;
@@ -86,6 +96,8 @@ export class BreakSurface {
     this.root.append(style);
     document.documentElement.append(this.host);
     this.installKeyboardHandling();
+    document.addEventListener("visibilitychange", this.onVisibilityChange, { passive: true });
+    this.onVisibilityChange();
   }
 
   private shell(): { backdrop: HTMLDivElement; panel: HTMLElement; content: HTMLDivElement } {
@@ -120,6 +132,7 @@ export class BreakSurface {
 
   private renderPrompt(): void {
     if (!this.root || !this.state) return;
+    this.clearViewTasks();
     this.root.querySelector(".backdrop")?.remove();
     const { content } = this.shell();
     const visual = element("div", "pause-visual");
@@ -157,7 +170,9 @@ export class BreakSurface {
     });
     actions.append(take, later);
     content.append(visual, eyebrow, title, description, insight, actions, deferChoices);
-    window.setTimeout(() => take.focus(), 30);
+    this.scheduleTask(() => {
+      if (take.isConnected) take.focus();
+    }, 30);
   }
 
   private createDeferralChoices(): HTMLDivElement {
@@ -183,7 +198,7 @@ export class BreakSurface {
 
   private renderActive(): void {
     if (!this.root || !this.state) return;
-    if (this.tick !== undefined) window.clearInterval(this.tick);
+    this.clearViewTasks();
     this.root.querySelector(".backdrop")?.remove();
     const { content } = this.shell();
     content.classList.add("active-content");
@@ -207,7 +222,8 @@ export class BreakSurface {
     timer.setAttribute("aria-label", "Break time remaining");
     const blinkGuide = element("div", "blink-guide");
     blinkGuide.setAttribute("aria-label", "Blink slowly five times");
-    for (let index = 0; index < 5; index += 1) blinkGuide.append(element("span", "blink-mark"));
+    const blinkMarks = Array.from({ length: 5 }, () => element("span", "blink-mark"));
+    blinkGuide.append(...blinkMarks);
     const finish = element("button", "text-button", "Finish early");
     finish.type = "button";
     finish.addEventListener("click", () => void this.finishBreak());
@@ -215,7 +231,8 @@ export class BreakSurface {
 
     const duration = this.state.settings.breakDurationSeconds;
     const startedAt = this.state.timer.activeBreakStartedAt ?? Date.now();
-    const update = () => {
+    let renderedBlinks = -1;
+    const update = (): number => {
       const elapsed = Math.max(0, (Date.now() - startedAt) / 1_000);
       const remaining = Math.max(0, duration - elapsed);
       const nextTime = formatTime(remaining);
@@ -230,20 +247,23 @@ export class BreakSurface {
       }
       if (guide.textContent !== nextGuide) guide.textContent = nextGuide;
       const completedBlinks = Math.min(5, Math.floor((elapsed / duration) * 6));
-      [...blinkGuide.children].forEach((mark, index) => {
-        mark.classList.toggle("done", index < completedBlinks);
-      });
+      if (completedBlinks !== renderedBlinks) {
+        blinkMarks.forEach((mark, index) => mark.classList.toggle("done", index < completedBlinks));
+        renderedBlinks = completedBlinks;
+      }
       if (remaining <= 0) void this.finishBreak();
+      return remaining * 1_000;
     };
-    update();
-    this.tick = window.setInterval(update, 250);
-    window.setTimeout(() => finish.focus(), 30);
+    this.activeUpdate = update;
+    this.startTicker();
+    this.scheduleTask(() => {
+      if (finish.isConnected) finish.focus();
+    }, 30);
   }
 
   private renderComplete(): void {
     if (!this.root || !this.state) return;
-    if (this.tick !== undefined) window.clearInterval(this.tick);
-    this.tick = undefined;
+    this.clearViewTasks();
     this.view = "complete";
     this.activeBreakStartedAt = null;
     this.root.querySelector(".backdrop")?.remove();
@@ -262,15 +282,18 @@ export class BreakSurface {
     close.type = "button";
     close.addEventListener("click", () => this.hide());
     content.append(success, eyebrow, title, description, close);
-    window.setTimeout(() => close.focus(), 30);
-    window.setTimeout(() => this.hide(), 5_000);
+    this.scheduleTask(() => {
+      if (close.isConnected) close.focus();
+    }, 30);
+    this.scheduleTask(() => this.hide(), 5_000);
   }
 
   private async startBreak(): Promise<void> {
     if (!this.state) return;
+    const host = this.host;
     this.playSoftChime();
     const response = await sendRequest({ type: "START_BREAK" }).catch(() => null);
-    if (response?.ok && response.state) {
+    if (this.host === host && response?.ok && response.state) {
       this.showActive(response.state);
     }
   }
@@ -283,10 +306,12 @@ export class BreakSurface {
   private async finishBreak(): Promise<void> {
     if (!this.state || this.completed) return;
     this.completed = true;
-    if (this.tick !== undefined) window.clearInterval(this.tick);
+    this.clearTicker();
+    const host = this.host;
     const startedAt = this.state.timer.activeBreakStartedAt ?? Date.now();
     const elapsedSeconds = Math.max(0, Math.round((Date.now() - startedAt) / 1_000));
     const response = await sendRequest({ type: "COMPLETE_BREAK", elapsedSeconds }).catch(() => null);
+    if (this.host !== host || !this.root) return;
     if (response?.ok && response.state) this.state = response.state;
     this.renderComplete();
   }
@@ -305,7 +330,7 @@ export class BreakSurface {
       gain.gain.exponentialRampToValueAtTime(0.055, context.currentTime + 0.04);
       gain.gain.exponentialRampToValueAtTime(0.0001, context.currentTime + 0.8);
       oscillator.connect(gain).connect(context.destination);
-      oscillator.addEventListener("ended", () => void context.close());
+      oscillator.addEventListener("ended", () => void context.close(), { once: true });
       oscillator.start();
       oscillator.stop(context.currentTime + 0.82);
     } catch {
@@ -338,10 +363,58 @@ export class BreakSurface {
     };
     document.addEventListener("keydown", this.keyHandler, true);
   }
+
+  private startTicker(): void {
+    this.clearTicker();
+    if (
+      this.view !== "active" ||
+      !this.activeUpdate ||
+      document.visibilityState !== "visible"
+    ) {
+      return;
+    }
+    const remainingMs = this.activeUpdate();
+    if (remainingMs <= 0) return;
+    this.tick = window.setTimeout(() => {
+      this.tick = undefined;
+      this.startTicker();
+    }, Math.min(1_000, remainingMs));
+  }
+
+  private clearTicker(): void {
+    if (this.tick !== undefined) window.clearTimeout(this.tick);
+    this.tick = undefined;
+  }
+
+  private scheduleTask(callback: () => void, delay: number): void {
+    const timer = window.setTimeout(() => {
+      this.delayedTasks.delete(timer);
+      callback();
+    }, delay);
+    this.delayedTasks.add(timer);
+  }
+
+  private clearViewTasks(): void {
+    this.clearTicker();
+    for (const timer of this.delayedTasks) window.clearTimeout(timer);
+    this.delayedTasks.clear();
+    this.activeUpdate = null;
+  }
+
+  private onVisibilityChange = (): void => {
+    const hidden = document.visibilityState !== "visible";
+    this.host?.toggleAttribute("data-page-hidden", hidden);
+    if (this.view !== "active") return;
+    if (hidden) this.clearTicker();
+    else this.startTicker();
+  };
 }
 
 const SURFACE_STYLES = `
   :host { all: initial; }
+  :host([data-page-hidden]) *, :host([data-page-hidden]) *::before, :host([data-page-hidden]) *::after {
+    animation-play-state: paused !important;
+  }
   * { box-sizing: border-box; }
   button { font: inherit; }
   .backdrop {

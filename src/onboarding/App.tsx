@@ -15,10 +15,12 @@ import { Brand } from "../shared/components/Brand";
 import { Button } from "../shared/components/Button";
 import { sendRequest } from "../shared/messages";
 import { hasSiteAccess, requestSiteAccess } from "../shared/site-access";
+import { usePageVisibilityLifecycle } from "../shared/use-page-visibility";
 
 const TOTAL_STEPS = 4;
 
 export function App() {
+  usePageVisibilityLifecycle();
   const [step, setStep] = useState(0);
   const [interval, setIntervalMinutes] = useState(15);
   const [siteAccess, setSiteAccess] = useState(false);

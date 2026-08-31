@@ -6,17 +6,22 @@ class TimestampWindow {
   private values: number[] = [];
   private head = 0;
 
-  push(value: number): void {
+  push(value: number, cutoff: number): void {
     this.values.push(value);
+    this.prune(cutoff);
   }
 
   countSince(cutoff: number): number {
+    this.prune(cutoff);
+    return this.values.length - this.head;
+  }
+
+  private prune(cutoff: number): void {
     while (this.head < this.values.length && this.values[this.head] < cutoff) this.head += 1;
     if (this.head > 64 && this.head * 2 >= this.values.length) {
       this.values = this.values.slice(this.head);
       this.head = 0;
     }
-    return this.values.length - this.head;
   }
 
   clear(): void {
@@ -34,8 +39,9 @@ export class ActivityTracker {
   private lastClickAt = 0;
   private interactionTimes = new TimestampWindow();
   private keyboardTimes = new TimestampWindow();
-  private playingMedia = new Set<HTMLMediaElement>();
-  private lastPointerSampleAt = 0;
+  private playingMedia = new Set<WeakRef<HTMLMediaElement>>();
+  private lastPointerEventAt = Number.NEGATIVE_INFINITY;
+  private lastScrollEventAt = Number.NEGATIVE_INFINITY;
   private reportingEnabled = false;
   private running = false;
   private idleSignal: number | undefined;
@@ -82,7 +88,8 @@ export class ActivityTracker {
     this.lastPointerAt = 0;
     this.lastScrollAt = 0;
     this.lastClickAt = 0;
-    this.lastPointerSampleAt = 0;
+    this.lastPointerEventAt = Number.NEGATIVE_INFINITY;
+    this.lastScrollEventAt = Number.NEGATIVE_INFINITY;
   }
 
   setReportingEnabled(enabled: boolean): void {
@@ -107,16 +114,17 @@ export class ActivityTracker {
       pageVisible: document.visibilityState === "visible",
       windowFocused: document.hasFocus(),
       fullscreen: document.fullscreenElement !== null,
-      mediaPlaying: this.playingMedia.size > 0,
+      mediaPlaying: this.hasPlayingMedia(),
     };
   }
 
   private record(kind: ActivityKind, now = Date.now()): void {
     this.lastInteractionAt = now;
-    this.interactionTimes.push(now);
+    const cutoff = now - 30_000;
+    this.interactionTimes.push(now, cutoff);
     if (kind === "keyboard") {
       this.lastKeyboardAt = now;
-      this.keyboardTimes.push(now);
+      this.keyboardTimes.push(now, cutoff);
     } else if (kind === "pointer") {
       this.lastPointerAt = now;
     } else if (kind === "scroll") {
@@ -154,14 +162,17 @@ export class ActivityTracker {
 
   private onKeyboard = (): void => this.record("keyboard");
 
-  private onPointer = (): void => {
-    const now = Date.now();
-    if (now - this.lastPointerSampleAt < 2_000) return;
-    this.lastPointerSampleAt = now;
-    this.record("pointer", now);
+  private onPointer = (event: PointerEvent): void => {
+    if (event.timeStamp - this.lastPointerEventAt < 2_000) return;
+    this.lastPointerEventAt = event.timeStamp;
+    this.record("pointer");
   };
 
-  private onScroll = (): void => this.record("scroll");
+  private onScroll = (event: Event): void => {
+    if (event.timeStamp - this.lastScrollEventAt < 500) return;
+    this.lastScrollEventAt = event.timeStamp;
+    this.record("scroll");
+  };
   private onClick = (): void => this.record("click");
 
   private onContextChange = (): void => {
@@ -173,12 +184,40 @@ export class ActivityTracker {
   };
 
   private onMediaPlaying = (event: Event): void => {
-    if (event.target instanceof HTMLMediaElement) this.playingMedia.add(event.target);
+    if (event.target instanceof HTMLMediaElement) {
+      const alreadyTracked = this.prunePlayingMedia(event.target);
+      if (!alreadyTracked) this.playingMedia.add(new WeakRef(event.target));
+    }
     if (this.reportingEnabled) this.emit();
   };
 
   private onMediaStopped = (event: Event): void => {
-    if (event.target instanceof HTMLMediaElement) this.playingMedia.delete(event.target);
+    if (event.target instanceof HTMLMediaElement) this.removeMedia(event.target);
     if (this.reportingEnabled) this.emit();
   };
+
+  private hasPlayingMedia(): boolean {
+    this.prunePlayingMedia();
+    return this.playingMedia.size > 0;
+  }
+
+  private prunePlayingMedia(match?: HTMLMediaElement): boolean {
+    let matched = false;
+    for (const reference of this.playingMedia) {
+      const media = reference.deref();
+      if (!media || media.paused || media.ended || !media.isConnected) {
+        this.playingMedia.delete(reference);
+      } else if (media === match) {
+        matched = true;
+      }
+    }
+    return matched;
+  }
+
+  private removeMedia(target: HTMLMediaElement): void {
+    for (const reference of this.playingMedia) {
+      const media = reference.deref();
+      if (!media || media === target) this.playingMedia.delete(reference);
+    }
+  }
 }

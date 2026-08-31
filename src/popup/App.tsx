@@ -16,6 +16,7 @@ import { Button } from "../shared/components/Button";
 import { sendRequest } from "../shared/messages";
 import { applyAnimationPreference, applyTheme } from "../shared/theme";
 import type { AppSnapshot, TimerState } from "../shared/types";
+import { usePageVisibilityLifecycle } from "../shared/use-page-visibility";
 
 function formatCountdown(milliseconds: number): string {
   const seconds = Math.max(0, Math.ceil(milliseconds / 1_000));
@@ -51,23 +52,23 @@ function statusCopy(timer: TimerState, remaining: number) {
 }
 
 export function App() {
+  usePageVisibilityLifecycle();
   const [state, setState] = useState<AppSnapshot | null>(null);
-  const [now, setNow] = useState(0);
   const [pending, setPending] = useState<string | null>(null);
   const [error, setError] = useState(false);
+  const theme = state?.settings.theme;
+  const animationPreference = state?.settings.animationPreference;
 
   const refresh = useCallback(async () => {
     const response = await sendRequest({ type: "GET_APP_STATE" });
     if (response.ok && response.state) {
       setState(response.state);
-      setNow(Date.now());
       setError(false);
     }
   }, []);
 
   useEffect(() => {
     const initial = window.setTimeout(() => void refresh().catch(() => setError(true)), 0);
-    const clock = window.setInterval(() => setNow(Date.now()), 1_000);
     const onStorage = (
       changes: Record<string, chrome.storage.StorageChange>,
       areaName: string,
@@ -81,17 +82,16 @@ export function App() {
     };
     chrome.storage.onChanged.addListener(onStorage);
     return () => {
-      window.clearInterval(clock);
       window.clearTimeout(initial);
       chrome.storage.onChanged.removeListener(onStorage);
     };
   }, [refresh]);
 
   useEffect(() => {
-    if (!state) return;
-    applyTheme(state.settings.theme);
-    applyAnimationPreference(state.settings.animationPreference);
-  }, [state]);
+    if (!theme || !animationPreference) return;
+    applyTheme(theme);
+    applyAnimationPreference(animationPreference);
+  }, [animationPreference, theme]);
 
   const act = async (label: string, action: Parameters<typeof sendRequest>[0]) => {
     setPending(label);
@@ -123,15 +123,9 @@ export function App() {
   }
 
   if (state.timer.status === "break_active") {
-    return <PopupBreak state={state} now={now} onState={setState} />;
+    return <PopupBreak state={state} onState={setState} />;
   }
 
-  const remaining = remainingMs(state.timer, now);
-  const status = statusCopy(state.timer, remaining);
-  const intervalMs = state.settings.breakIntervalMinutes * 60_000;
-  const progress = ["counting", "deferred", "paused"].includes(state.timer.status)
-    ? Math.min(1, Math.max(0, 1 - remaining / intervalMs))
-    : 1;
   const goalProgress = Math.min(1, state.stats.completed / state.settings.dailyGoal);
 
   return (
@@ -151,23 +145,7 @@ export function App() {
         </button>
       </header>
 
-      <section className="timer-section" aria-labelledby="next-break-heading">
-        <div className={`status-pill status-${status.tone}`}>
-          <span className="status-pulse" aria-hidden="true" />
-          {status.label}
-        </div>
-        <TimerRing progress={progress} paused={state.timer.status === "paused"}>
-          <span className="timer-label" id="next-break-heading">
-            {state.timer.status === "paused" ? "TIME HELD" : remaining === 0 ? "BREAK DUE" : "NEXT BREAK"}
-          </span>
-          <strong className="countdown" role="timer">
-            {remaining === 0 && !["paused", "counting", "deferred"].includes(state.timer.status)
-              ? "READY"
-              : formatCountdown(remaining)}
-          </strong>
-          <span className="timer-detail">{status.detail}</span>
-        </TimerRing>
-      </section>
+      <TimerSection key={state.timer.lastTransitionAt} state={state} />
 
       <div className="primary-actions">
         <Button
@@ -240,6 +218,76 @@ export function App() {
   );
 }
 
+function useTimestampClock(active: boolean): number {
+  const [now, setNow] = useState(() => Date.now());
+
+  useEffect(() => {
+    if (!active) return;
+    let timer: number | undefined;
+    const clear = () => {
+      if (timer !== undefined) window.clearTimeout(timer);
+      timer = undefined;
+    };
+    const schedule = () => {
+      clear();
+      if (document.visibilityState !== "visible") return;
+      const delay = 1_010 - (Date.now() % 1_000);
+      timer = window.setTimeout(() => {
+        timer = undefined;
+        setNow(Date.now());
+        schedule();
+      }, delay);
+    };
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        setNow(Date.now());
+        schedule();
+      } else {
+        clear();
+      }
+    };
+    schedule();
+    document.addEventListener("visibilitychange", onVisibilityChange, { passive: true });
+    return () => {
+      clear();
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+    };
+  }, [active]);
+
+  return now;
+}
+
+function TimerSection({ state }: { state: AppSnapshot }) {
+  const clockActive = ["counting", "deferred"].includes(state.timer.status);
+  const now = useTimestampClock(clockActive);
+  const remaining = remainingMs(state.timer, now);
+  const status = statusCopy(state.timer, remaining);
+  const intervalMs = state.settings.breakIntervalMinutes * 60_000;
+  const progress = ["counting", "deferred", "paused"].includes(state.timer.status)
+    ? Math.min(1, Math.max(0, 1 - remaining / intervalMs))
+    : 1;
+
+  return (
+    <section className="timer-section" aria-labelledby="next-break-heading">
+      <div className={`status-pill status-${status.tone}`}>
+        <span className="status-pulse" aria-hidden="true" />
+        {status.label}
+      </div>
+      <TimerRing progress={progress} paused={state.timer.status === "paused"}>
+        <span className="timer-label" id="next-break-heading">
+          {state.timer.status === "paused" ? "TIME HELD" : remaining === 0 ? "BREAK DUE" : "NEXT BREAK"}
+        </span>
+        <strong className="countdown" role="timer">
+          {remaining === 0 && !["paused", "counting", "deferred"].includes(state.timer.status)
+            ? "READY"
+            : formatCountdown(remaining)}
+        </strong>
+        <span className="timer-detail">{status.detail}</span>
+      </TimerRing>
+    </section>
+  );
+}
+
 function TimerRing({ progress, paused, children }: { progress: number; paused: boolean; children: ReactNode }) {
   const radius = 84;
   const circumference = 2 * Math.PI * radius;
@@ -260,8 +308,9 @@ function TimerRing({ progress, paused, children }: { progress: number; paused: b
   );
 }
 
-function PopupBreak({ state, now, onState }: { state: AppSnapshot; now: number; onState: (state: AppSnapshot) => void }) {
+function PopupBreak({ state, onState }: { state: AppSnapshot; onState: (state: AppSnapshot) => void }) {
   const finishing = useRef(false);
+  const now = useTimestampClock(true);
   const startedAt = state.timer.activeBreakStartedAt ?? now;
   const elapsedSeconds = Math.max(0, (now - startedAt) / 1_000);
   const remaining = Math.max(0, state.settings.breakDurationSeconds - elapsedSeconds);

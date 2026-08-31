@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import {
   Activity,
   BarChart3,
@@ -25,14 +25,19 @@ import type {
   ThemePreference,
   UserSettings,
 } from "../shared/types";
+import { usePageVisibilityLifecycle } from "../shared/use-page-visibility";
 
 type SaveState = "idle" | "saving" | "saved" | "error";
 
 export function App() {
+  usePageVisibilityLifecycle();
   const [state, setState] = useState<AppSnapshot | null>(null);
   const [siteAccess, setSiteAccess] = useState(false);
   const [saveState, setSaveState] = useState<SaveState>("idle");
   const [permissionNote, setPermissionNote] = useState<string | null>(null);
+  const saveResetTimer = useRef<number | undefined>(undefined);
+  const theme = state?.settings.theme;
+  const animationPreference = state?.settings.animationPreference;
 
   const load = useCallback(async () => {
     const [response, access] = await Promise.all([
@@ -45,14 +50,17 @@ export function App() {
 
   useEffect(() => {
     const initial = window.setTimeout(() => void load(), 0);
-    return () => window.clearTimeout(initial);
+    return () => {
+      window.clearTimeout(initial);
+      if (saveResetTimer.current !== undefined) window.clearTimeout(saveResetTimer.current);
+    };
   }, [load]);
 
   useEffect(() => {
-    if (!state) return;
-    applyTheme(state.settings.theme);
-    applyAnimationPreference(state.settings.animationPreference);
-  }, [state]);
+    if (!theme || !animationPreference) return;
+    applyTheme(theme);
+    applyAnimationPreference(animationPreference);
+  }, [animationPreference, theme]);
 
   const update = async (patch: Partial<UserSettings>) => {
     if (!state) return;
@@ -64,8 +72,14 @@ export function App() {
       if (!response.ok || !response.state) throw new Error("Save failed");
       setState(response.state);
       setSaveState("saved");
-      window.setTimeout(() => setSaveState("idle"), 1_800);
+      if (saveResetTimer.current !== undefined) window.clearTimeout(saveResetTimer.current);
+      saveResetTimer.current = window.setTimeout(() => {
+        saveResetTimer.current = undefined;
+        setSaveState("idle");
+      }, 1_800);
     } catch {
+      if (saveResetTimer.current !== undefined) window.clearTimeout(saveResetTimer.current);
+      saveResetTimer.current = undefined;
       setState(previous);
       setSaveState("error");
     }

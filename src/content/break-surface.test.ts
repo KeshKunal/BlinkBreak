@@ -26,6 +26,10 @@ beforeEach(() => {
     configurable: true,
     value: vi.fn().mockReturnValue({ matches: false }),
   });
+  Object.defineProperty(document, "visibilityState", {
+    configurable: true,
+    value: "visible",
+  });
 });
 
 afterEach(() => {
@@ -47,5 +51,40 @@ describe("break surface rendering", () => {
     expect(firstHost?.isConnected).toBe(true);
 
     surface.hide();
+  });
+
+  it("stops timer and animation work while the page is hidden", () => {
+    const surface = new BreakSurface();
+    surface.showActive(activeState());
+    vi.advanceTimersByTime(30);
+    expect(vi.getTimerCount()).toBe(1);
+
+    Object.defineProperty(document, "visibilityState", {
+      configurable: true,
+      value: "hidden",
+    });
+    document.dispatchEvent(new Event("visibilitychange"));
+    expect(vi.getTimerCount()).toBe(0);
+    expect(
+      document.getElementById("blinkbreak-break-surface")?.hasAttribute("data-page-hidden"),
+    ).toBe(true);
+
+    Object.defineProperty(document, "visibilityState", {
+      configurable: true,
+      value: "visible",
+    });
+    document.dispatchEvent(new Event("visibilitychange"));
+    expect(vi.getTimerCount()).toBe(1);
+
+    surface.hide();
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("clears delayed focus work when dismissed", () => {
+    const surface = new BreakSurface();
+    surface.showPrompt(activeState());
+    expect(vi.getTimerCount()).toBe(1);
+    surface.hide();
+    expect(vi.getTimerCount()).toBe(0);
   });
 });

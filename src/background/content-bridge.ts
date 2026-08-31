@@ -3,10 +3,8 @@ import { loadAppSnapshot } from "../shared/storage";
 import type { ActivitySnapshot, AppSnapshot } from "../shared/types";
 
 const CONTENT_SCRIPT_ID = "blinkbreak-content";
-const ACTIVITY_FRESHNESS_MS = 90_000;
 
 export class ContentBridge {
-  private latestActivity = new Map<number, ActivitySnapshot>();
   private knownTabs = new Set<number>();
   private hasSiteAccess = false;
 
@@ -16,11 +14,6 @@ export class ContentBridge {
 
   forgetTab(tabId: number): void {
     this.knownTabs.delete(tabId);
-    this.latestActivity.delete(tabId);
-  }
-
-  rememberActivity(tabId: number, snapshot: ActivitySnapshot): void {
-    this.latestActivity.set(tabId, snapshot);
   }
 
   async getActiveSnapshot(): Promise<ActivitySnapshot | null> {
@@ -35,18 +28,14 @@ export class ContentBridge {
           timeoutId = setTimeout(() => resolve(null), 1_200);
         }),
       ]);
-      if (isActivitySnapshot(response)) {
-        this.latestActivity.set(tab.id, response);
-        return response;
-      }
+      if (isActivitySnapshot(response)) return response;
     } catch {
       // Restricted pages cannot host content scripts; use any fresh in-memory signal.
     } finally {
       if (timeoutId !== undefined) clearTimeout(timeoutId);
     }
 
-    const cached = this.latestActivity.get(tab.id);
-    return cached && Date.now() - cached.capturedAt <= ACTIVITY_FRESHNESS_MS ? cached : null;
+    return null;
   }
 
   async showOnActiveTab(state?: AppSnapshot, playSound = false): Promise<void> {
@@ -56,13 +45,12 @@ export class ContentBridge {
 
   async showOnTab(tabId: number, state?: AppSnapshot, playSound = false): Promise<void> {
     const current = state ?? (await loadAppSnapshot());
-    let command: ContentCommand | null = null;
+    let command: ContentCommand = { type: "HIDE_BREAK_UI" };
     if (current.timer.status === "prompt_ready") {
       command = { type: "SHOW_BREAK_PROMPT", state: current };
     } else if (current.timer.status === "break_active") {
       command = { type: "SHOW_ACTIVE_BREAK", state: current, playSound };
     }
-    if (!command) return;
     try {
       await chrome.tabs.sendMessage(tabId, command);
     } catch {
@@ -136,7 +124,6 @@ export class ContentBridge {
 
     if (!hasAccess) {
       this.knownTabs.clear();
-      this.latestActivity.clear();
     } else if (injectOpenTabs || !exists) {
       await this.injectIntoActiveTab();
     }
