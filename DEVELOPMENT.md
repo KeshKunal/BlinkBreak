@@ -72,7 +72,7 @@ Chrome API orchestration is intentionally thin around those pure modules. Always
 11. Verify explicit light/dark themes and system theme; enable both OS reduced motion and BlinkBreak’s reduced option.
 12. Remove page access in Settings and verify fixed scheduling, popup, and badge continue while page observation stops.
 13. Inspect `chrome.storage.local` and verify it contains only `settings`, `timer`, and aggregate `stats`.
-14. Inspect the service worker network panel and verify there are no requests.
+14. Inspect the service worker network panel and verify there are no external requests.
 
 ## Release checklist
 

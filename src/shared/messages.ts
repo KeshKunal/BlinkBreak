@@ -4,6 +4,7 @@ export type ExtensionRequest =
   | { type: "GET_APP_STATE" }
   | { type: "UPDATE_SETTINGS"; patch: Partial<UserSettings> }
   | { type: "SYNC_SITE_ACCESS" }
+  | { type: "START_SESSION" }
   | { type: "PAUSE_TIMER" }
   | { type: "RESUME_TIMER" }
   | { type: "TAKE_BREAK_NOW" }
@@ -57,6 +58,7 @@ export function isExtensionRequest(value: unknown): value is ExtensionRequest {
     case "START_BREAK":
     case "GET_ACTIVITY_SNAPSHOT":
     case "SYNC_SITE_ACCESS":
+    case "START_SESSION":
       return true;
     case "UPDATE_SETTINGS":
       return isRecord(value.patch);

@@ -52,7 +52,10 @@ export function App() {
         onboardingComplete: true,
       },
     }).catch(() => null);
-    if (response?.ok) setFinished(true);
+    if (response?.ok) {
+      const started = await sendRequest({ type: "START_SESSION" }).catch(() => null);
+      if (started?.ok) setFinished(true);
+    }
     setBusy(false);
   };
 

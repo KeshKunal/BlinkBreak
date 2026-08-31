@@ -1,10 +1,9 @@
 import {
-  isActivitySnapshot,
   isExtensionRequest,
   type BackgroundResponse,
-  type ContentCommand,
   type ExtensionRequest,
 } from "../shared/messages";
+import { createDefaultTimer } from "../shared/defaults";
 import {
   loadAppSnapshot,
   saveAppSnapshot,
@@ -14,15 +13,14 @@ import {
 } from "../shared/storage";
 import type { ActivitySnapshot, AppSnapshot, TimerState } from "../shared/types";
 import { sanitizeSettings } from "../shared/validation";
+import { ContentBridge } from "./content-bridge";
 import { assessInterruption } from "./interruption-engine";
 import { recoverTimer, transitionTimer } from "./timer-engine";
 
 const SCHEDULER_ALARM = "blinkbreak-scheduler";
-const CONTENT_SCRIPT_ID = "blinkbreak-content";
-const ACTIVITY_FRESHNESS_MS = 90_000;
 
 export class BlinkBreakController {
-  private latestActivity = new Map<number, ActivitySnapshot>();
+  private content = new ContentBridge();
   private operation = Promise.resolve();
 
   register(): void {
@@ -52,17 +50,19 @@ export class BlinkBreakController {
     });
 
     chrome.tabs.onActivated.addListener(({ tabId }) => {
-      void this.enqueue(() => this.restoreSurfaceToTab(tabId));
+      void this.enqueue(() => this.content.showOnTab(tabId));
     });
 
     chrome.windows.onFocusChanged.addListener(() => {
-      void this.enqueue(() => this.restoreSurfaceToActiveTab());
+      void this.enqueue(() => this.content.showOnActiveTab());
     });
 
     chrome.permissions.onAdded.addListener(() =>
-      void this.enqueue(() => this.syncContentRegistration(true)),
+      void this.enqueue(() => this.content.syncRegistration(true)),
     );
-    chrome.permissions.onRemoved.addListener(() => void this.enqueue(() => this.syncContentRegistration()));
+    chrome.permissions.onRemoved.addListener(() =>
+      void this.enqueue(() => this.content.syncRegistration()),
+    );
 
     void this.enqueue(() => this.initialize());
   }
@@ -77,14 +77,14 @@ export class BlinkBreakController {
   }
 
   private async initialize(): Promise<void> {
-    await this.syncContentRegistration();
+    await this.content.syncRegistration();
     const state = await loadAppSnapshot();
     state.timer = recoverTimer(state.timer, state.settings);
     await saveAppSnapshot(state);
     await this.schedule(state);
     await this.updateAction(state.timer);
     if (["prompt_ready", "break_active"].includes(state.timer.status)) {
-      await this.restoreSurfaceToActiveTab(state);
+      await this.content.showOnActiveTab(state);
     }
   }
 
@@ -100,10 +100,10 @@ export class BlinkBreakController {
       }
 
       case "ACTIVITY_UPDATE": {
-        if (sender.tab?.id === undefined || !isActivitySnapshot(message.snapshot)) {
+        if (sender.tab?.id === undefined) {
           return { ok: false, error: "Activity update rejected" };
         }
-        this.latestActivity.set(sender.tab.id, message.snapshot);
+        this.content.rememberActivity(sender.tab.id, message.snapshot);
         const state = await loadAppSnapshot();
         if (state.timer.status === "waiting_for_pause") {
           const assessment = assessInterruption(
@@ -112,7 +112,7 @@ export class BlinkBreakController {
           );
           if (assessment.risk === "low") await this.evaluateDueBreak(message.snapshot, state);
         } else if (["prompt_ready", "break_active"].includes(state.timer.status)) {
-          await this.restoreSurfaceToTab(sender.tab.id, state);
+          await this.content.showOnTab(sender.tab.id, state);
         }
         return { ok: true };
       }
@@ -131,7 +131,7 @@ export class BlinkBreakController {
         await saveSettings(state.settings);
         await saveTimer(state.timer);
         await this.schedule(state);
-        await this.broadcastTracking(state.settings.smartInterruptionEnabled);
+        await this.content.broadcastTracking(state.settings.smartInterruptionEnabled);
         if (!state.settings.smartInterruptionEnabled && state.timer.status === "waiting_for_pause") {
           await this.evaluateDueBreak(null, state);
         }
@@ -139,8 +139,18 @@ export class BlinkBreakController {
       }
 
       case "SYNC_SITE_ACCESS": {
-        await this.syncContentRegistration(true);
+        await this.content.syncRegistration(true);
         const state = await loadAppSnapshot();
+        return { ok: true, state };
+      }
+
+      case "START_SESSION": {
+        const state = await loadAppSnapshot();
+        state.timer = createDefaultTimer(Date.now(), state.settings);
+        await saveTimer(state.timer);
+        await this.content.hideOnActiveTab();
+        await this.schedule(state);
+        await this.updateAction(state.timer);
         return { ok: true, state };
       }
 
@@ -164,7 +174,7 @@ export class BlinkBreakController {
         await saveTimer(state.timer);
         await this.schedule(state);
         await this.updateAction(state.timer);
-        await this.restoreSurfaceToActiveTab(state);
+        await this.content.showOnActiveTab(state);
         return { ok: true, state };
       }
 
@@ -174,7 +184,7 @@ export class BlinkBreakController {
         await saveAppSnapshot(state);
         await this.schedule(state);
         await this.updateAction(state.timer);
-        await this.restoreSurfaceToActiveTab(state, sender.tab?.id === undefined);
+        await this.content.showOnActiveTab(state, sender.tab?.id === undefined);
         return { ok: true, state };
       }
 
@@ -186,7 +196,7 @@ export class BlinkBreakController {
             state.settings,
           );
           state.stats.deferred += 1;
-          await this.hideActiveSurface();
+          await this.content.hideOnActiveTab();
         });
 
       case "COMPLETE_BREAK":
@@ -204,7 +214,7 @@ export class BlinkBreakController {
     const state = await loadAppSnapshot();
     await mutation(state);
     await saveAppSnapshot(state);
-    if (hideSurface) await this.hideActiveSurface();
+    if (hideSurface) await this.content.hideOnActiveTab();
     await this.schedule(state);
     await this.updateAction(state.timer);
     return { ok: true, state };
@@ -261,7 +271,7 @@ export class BlinkBreakController {
 
     state.timer = transitionTimer(state.timer, { type: "DUE" }, state.settings, now);
     const snapshot =
-      suppliedSnapshot === undefined ? await this.getActiveSnapshot() : suppliedSnapshot;
+      suppliedSnapshot === undefined ? await this.content.getActiveSnapshot() : suppliedSnapshot;
     const assessment = assessInterruption(snapshot, state.settings.sensitivity, now);
 
     if (!state.settings.smartInterruptionEnabled || assessment.risk === "low") {
@@ -269,7 +279,7 @@ export class BlinkBreakController {
       await saveTimer(state.timer);
       await this.schedule(state);
       await this.updateAction(state.timer);
-      await this.restoreSurfaceToActiveTab(state);
+      await this.content.showOnActiveTab(state);
       return;
     }
 
@@ -282,27 +292,6 @@ export class BlinkBreakController {
     await saveTimer(state.timer);
     await this.schedule(state);
     await this.updateAction(state.timer);
-  }
-
-  private async getActiveSnapshot(): Promise<ActivitySnapshot | null> {
-    const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
-    if (tab?.id === undefined) return null;
-
-    try {
-      const response = await Promise.race([
-        chrome.tabs.sendMessage(tab.id, { type: "GET_ACTIVITY_SNAPSHOT" }),
-        new Promise<null>((resolve) => setTimeout(() => resolve(null), 1_200)),
-      ]);
-      if (isActivitySnapshot(response)) {
-        this.latestActivity.set(tab.id, response);
-        return response;
-      }
-    } catch {
-      // Restricted pages cannot host content scripts; use any fresh in-memory signal.
-    }
-
-    const cached = this.latestActivity.get(tab.id);
-    return cached && Date.now() - cached.capturedAt <= ACTIVITY_FRESHNESS_MS ? cached : null;
   }
 
   private async schedule(state: AppSnapshot): Promise<void> {
@@ -341,7 +330,7 @@ export class BlinkBreakController {
       prompt_ready: "A good moment for a break",
       break_active: "Break in progress",
     };
-    const badge = timer.status === "prompt_ready" ? "1" : timer.status === "paused" ? "Ⅱ" : "";
+    const badge = timer.status === "prompt_ready" ? "1" : timer.status === "paused" ? "II" : "";
     await Promise.all([
       chrome.action.setBadgeText({ text: badge }),
       chrome.action.setBadgeBackgroundColor({ color: "#1D6B5B" }),
@@ -349,99 +338,4 @@ export class BlinkBreakController {
     ]);
   }
 
-  private async restoreSurfaceToActiveTab(state?: AppSnapshot, playSound = false): Promise<void> {
-    const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
-    if (tab?.id !== undefined) await this.restoreSurfaceToTab(tab.id, state, playSound);
-  }
-
-  private async restoreSurfaceToTab(
-    tabId: number,
-    state?: AppSnapshot,
-    playSound = false,
-  ): Promise<void> {
-    const current = state ?? (await loadAppSnapshot());
-    let command: ContentCommand | null = null;
-    if (current.timer.status === "prompt_ready") {
-      command = { type: "SHOW_BREAK_PROMPT", state: current };
-    } else if (current.timer.status === "break_active") {
-      command = { type: "SHOW_ACTIVE_BREAK", state: current, playSound };
-    }
-    if (!command) return;
-    try {
-      await chrome.tabs.sendMessage(tabId, command);
-    } catch {
-      // Browser-owned and extension-store pages intentionally reject content scripts.
-    }
-  }
-
-  private async hideActiveSurface(): Promise<void> {
-    const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
-    if (tab?.id === undefined) return;
-    try {
-      await chrome.tabs.sendMessage(tab.id, { type: "HIDE_BREAK_UI" } satisfies ContentCommand);
-    } catch {
-      // No surface exists on restricted pages.
-    }
-  }
-
-  private async syncContentRegistration(injectOpenTabs = false): Promise<void> {
-    const hasAccess = await chrome.permissions.contains({
-      permissions: ["scripting"],
-      origins: ["http://*/*", "https://*/*"],
-    });
-    const registered = await chrome.scripting
-      ?.getRegisteredContentScripts({ ids: [CONTENT_SCRIPT_ID] })
-      .catch(() => []);
-    const exists = Boolean(registered?.length);
-
-    if (hasAccess && !exists) {
-      await chrome.scripting.registerContentScripts([
-        {
-          id: CONTENT_SCRIPT_ID,
-          matches: ["http://*/*", "https://*/*"],
-          js: ["content.js"],
-          runAt: "document_start",
-          persistAcrossSessions: true,
-        },
-      ]);
-    } else if (!hasAccess && exists) {
-      await chrome.scripting.unregisterContentScripts({ ids: [CONTENT_SCRIPT_ID] });
-    }
-
-    if (hasAccess && (injectOpenTabs || !exists)) await this.injectIntoOpenTabs();
-  }
-
-  private async injectIntoOpenTabs(): Promise<void> {
-    const tabs = await chrome.tabs.query({});
-    await Promise.all(
-      tabs.map(async (tab) => {
-        if (tab.id === undefined) return;
-        try {
-          await chrome.scripting.executeScript({
-            target: { tabId: tab.id },
-            files: ["content.js"],
-          });
-        } catch {
-          // Browser-owned, file, and extension-store pages correctly reject injection.
-        }
-      }),
-    );
-  }
-
-  private async broadcastTracking(enabled: boolean): Promise<void> {
-    const tabs = await chrome.tabs.query({});
-    await Promise.all(
-      tabs.map(async (tab) => {
-        if (tab.id === undefined) return;
-        try {
-          await chrome.tabs.sendMessage(tab.id, {
-            type: "SET_ACTIVITY_TRACKING",
-            enabled,
-          } satisfies ContentCommand);
-        } catch {
-          // The tab either lacks optional site access or has not loaded the script yet.
-        }
-      }),
-    );
-  }
 }

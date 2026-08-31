@@ -45,7 +45,7 @@ Browser-owned pages such as `chrome://` and the Chrome Web Store do not permit e
 
 ## Network and offline behavior
 
-The production extension makes no network requests and works offline. All executable code ships inside the extension package, in line with Manifest V3 requirements.
+The production extension makes no external network requests and works offline. All executable code ships inside the extension package, in line with Manifest V3 requirements.
 
 ## Data deletion
 

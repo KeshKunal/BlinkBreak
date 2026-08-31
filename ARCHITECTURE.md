@@ -16,6 +16,7 @@ No server exists. Chrome local storage is the only durable data store.
 - `src/background/timer-engine.ts` is the pure break-state reducer and restart recovery logic.
 - `src/background/interruption-engine.ts` is the pure, interpretable interruption score.
 - `src/background/controller.ts` serializes extension events, persists transitions, schedules alarms, and coordinates tabs.
+- `src/background/content-bridge.ts` owns optional script registration, tab messaging, overlay delivery, and ephemeral activity snapshots.
 - `src/content/activity-tracker.ts` collects timestamps and booleans only; it is event-driven and sends an explicit quiet signal after 15.5 seconds.
 - `src/content/break-surface.ts` owns the prompt, guided break, completion, focus trap, and Shadow DOM design system.
 - `src/shared/storage.ts` is the typed `chrome.storage.local` boundary.
