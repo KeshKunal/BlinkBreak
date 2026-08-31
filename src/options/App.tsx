@@ -288,6 +288,8 @@ export function App() {
             <Stat icon={<TimerReset />} value={`${Math.round(state.stats.totalBreakSeconds / 60)}m`} label="Time looking away" />
             <Stat icon={<Gauge />} value={averageInterval ? `${averageInterval}m` : "—"} label="Average interval" />
             <Stat icon={<Activity />} value={String(state.stats.deferred)} label="Breaks deferred" />
+            <Stat icon={<Sparkles />} value={String(state.stats.focusSessions)} label="Focus sessions" />
+            <Stat icon={<Clock3 />} value={longestMinutes ? `${longestMinutes}m` : "—"} label="Longest session" />
           </div>
           <p className="stats-footnote">{longestMinutes > 0 ? `Longest uninterrupted session today: ${longestMinutes} min.` : "Your first completed break will add detail here."}</p>
         </section>

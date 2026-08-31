@@ -15,6 +15,7 @@ export class ActivityTracker {
   private lastPointerSampleAt = 0;
   private lastSentAt = 0;
   private idleSignal: number | undefined;
+  private initialSignal: number | undefined;
 
   start(): void {
     document.addEventListener("keydown", this.onKeyboard, { capture: true, passive: true });
@@ -29,7 +30,7 @@ export class ActivityTracker {
     document.addEventListener("pause", this.onMediaStopped, true);
     document.addEventListener("ended", this.onMediaStopped, true);
 
-    window.setTimeout(() => this.emit(), 800);
+    this.initialSignal = window.setTimeout(() => this.emit(), 800);
     this.queueIdleSignal();
   }
 
@@ -46,7 +47,9 @@ export class ActivityTracker {
     document.removeEventListener("pause", this.onMediaStopped, true);
     document.removeEventListener("ended", this.onMediaStopped, true);
     if (this.idleSignal !== undefined) window.clearTimeout(this.idleSignal);
+    if (this.initialSignal !== undefined) window.clearTimeout(this.initialSignal);
     this.idleSignal = undefined;
+    this.initialSignal = undefined;
     this.playingMedia.clear();
   }
 

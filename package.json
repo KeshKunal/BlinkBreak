@@ -5,8 +5,10 @@
   "type": "module",
   "description": "A privacy-first adaptive eye-break extension for Chromium browsers.",
   "scripts": {
-    "dev": "vite",
+    "dev": "node scripts/watch-extension.mjs",
+    "dev:ui": "vite",
     "build": "node scripts/build-extension.mjs",
+    "verify:dist": "node scripts/validate-dist.mjs",
     "test": "vitest run",
     "test:watch": "vitest",
     "lint": "eslint .",
@@ -39,5 +41,6 @@
     "typescript-eslint": "^8.69.0",
     "vite": "^8.2.2",
     "vitest": "^4.1.11"
-  }
+  },
+  "license": "MIT"
 }

@@ -19,7 +19,7 @@ export type BackgroundResponse =
 
 export type ContentCommand =
   | { type: "SHOW_BREAK_PROMPT"; state: AppSnapshot }
-  | { type: "SHOW_ACTIVE_BREAK"; state: AppSnapshot }
+  | { type: "SHOW_ACTIVE_BREAK"; state: AppSnapshot; playSound?: boolean }
   | { type: "SET_ACTIVITY_TRACKING"; enabled: boolean }
   | { type: "HIDE_BREAK_UI" };
 

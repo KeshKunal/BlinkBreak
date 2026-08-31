@@ -16,3 +16,5 @@ await buildEsbuild({
   sourcemap: false,
   logLevel: "info",
 });
+
+await import("./validate-dist.mjs");

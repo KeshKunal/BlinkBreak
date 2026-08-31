@@ -59,7 +59,9 @@ export class BlinkBreakController {
       void this.enqueue(() => this.restoreSurfaceToActiveTab());
     });
 
-    chrome.permissions.onAdded.addListener(() => void this.enqueue(() => this.syncContentRegistration()));
+    chrome.permissions.onAdded.addListener(() =>
+      void this.enqueue(() => this.syncContentRegistration(true)),
+    );
     chrome.permissions.onRemoved.addListener(() => void this.enqueue(() => this.syncContentRegistration()));
 
     void this.enqueue(() => this.initialize());
@@ -137,7 +139,7 @@ export class BlinkBreakController {
       }
 
       case "SYNC_SITE_ACCESS": {
-        await this.syncContentRegistration();
+        await this.syncContentRegistration(true);
         const state = await loadAppSnapshot();
         return { ok: true, state };
       }
@@ -166,11 +168,15 @@ export class BlinkBreakController {
         return { ok: true, state };
       }
 
-      case "START_BREAK":
-        return this.changeTimer(async (state) => {
-          state.timer = transitionTimer(state.timer, { type: "START_BREAK" }, state.settings);
-          await this.restoreSurfaceToActiveTab(state);
-        });
+      case "START_BREAK": {
+        const state = await loadAppSnapshot();
+        state.timer = transitionTimer(state.timer, { type: "START_BREAK" }, state.settings);
+        await saveAppSnapshot(state);
+        await this.schedule(state);
+        await this.updateAction(state.timer);
+        await this.restoreSurfaceToActiveTab(state, sender.tab?.id === undefined);
+        return { ok: true, state };
+      }
 
       case "DEFER_BREAK":
         return this.changeTimer(async (state) => {
@@ -220,6 +226,7 @@ export class BlinkBreakController {
       state.stats.longestUninterruptedMs,
       uninterruptedMs,
     );
+    state.stats.focusSessions += 1;
     await saveAppSnapshot(state);
     await this.schedule(state);
     await this.updateAction(state.timer);
@@ -342,18 +349,22 @@ export class BlinkBreakController {
     ]);
   }
 
-  private async restoreSurfaceToActiveTab(state?: AppSnapshot): Promise<void> {
+  private async restoreSurfaceToActiveTab(state?: AppSnapshot, playSound = false): Promise<void> {
     const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
-    if (tab?.id !== undefined) await this.restoreSurfaceToTab(tab.id, state);
+    if (tab?.id !== undefined) await this.restoreSurfaceToTab(tab.id, state, playSound);
   }
 
-  private async restoreSurfaceToTab(tabId: number, state?: AppSnapshot): Promise<void> {
+  private async restoreSurfaceToTab(
+    tabId: number,
+    state?: AppSnapshot,
+    playSound = false,
+  ): Promise<void> {
     const current = state ?? (await loadAppSnapshot());
     let command: ContentCommand | null = null;
     if (current.timer.status === "prompt_ready") {
       command = { type: "SHOW_BREAK_PROMPT", state: current };
     } else if (current.timer.status === "break_active") {
-      command = { type: "SHOW_ACTIVE_BREAK", state: current };
+      command = { type: "SHOW_ACTIVE_BREAK", state: current, playSound };
     }
     if (!command) return;
     try {
@@ -373,7 +384,7 @@ export class BlinkBreakController {
     }
   }
 
-  private async syncContentRegistration(): Promise<void> {
+  private async syncContentRegistration(injectOpenTabs = false): Promise<void> {
     const hasAccess = await chrome.permissions.contains({
       permissions: ["scripting"],
       origins: ["http://*/*", "https://*/*"],
@@ -396,6 +407,25 @@ export class BlinkBreakController {
     } else if (!hasAccess && exists) {
       await chrome.scripting.unregisterContentScripts({ ids: [CONTENT_SCRIPT_ID] });
     }
+
+    if (hasAccess && (injectOpenTabs || !exists)) await this.injectIntoOpenTabs();
+  }
+
+  private async injectIntoOpenTabs(): Promise<void> {
+    const tabs = await chrome.tabs.query({});
+    await Promise.all(
+      tabs.map(async (tab) => {
+        if (tab.id === undefined) return;
+        try {
+          await chrome.scripting.executeScript({
+            target: { tabId: tab.id },
+            files: ["content.js"],
+          });
+        } catch {
+          // Browser-owned, file, and extension-store pages correctly reject injection.
+        }
+      }),
+    );
   }
 
   private async broadcastTracking(enabled: boolean): Promise<void> {

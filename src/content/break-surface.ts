@@ -42,10 +42,11 @@ export class BreakSurface {
     this.renderPrompt();
   }
 
-  showActive(state: AppSnapshot): void {
+  showActive(state: AppSnapshot, playSound = false): void {
     this.state = state;
     this.completed = false;
     this.mount();
+    if (playSound) this.playSoftChime();
     this.renderActive();
   }
 
