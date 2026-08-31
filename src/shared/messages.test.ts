@@ -6,6 +6,7 @@ describe("extension message validation", () => {
     expect(isExtensionRequest({ type: "PAUSE_TIMER" })).toBe(true);
     expect(isExtensionRequest({ type: "SYNC_SITE_ACCESS" })).toBe(true);
     expect(isExtensionRequest({ type: "START_SESSION" })).toBe(true);
+    expect(isExtensionRequest({ type: "CONTENT_READY" })).toBe(true);
     expect(isExtensionRequest({ type: "DEFER_BREAK", minutes: 5 })).toBe(true);
     expect(isExtensionRequest({ type: "COMPLETE_BREAK", elapsedSeconds: 20 })).toBe(true);
   });

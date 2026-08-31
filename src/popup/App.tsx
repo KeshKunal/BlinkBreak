@@ -68,7 +68,17 @@ export function App() {
   useEffect(() => {
     const initial = window.setTimeout(() => void refresh().catch(() => setError(true)), 0);
     const clock = window.setInterval(() => setNow(Date.now()), 1_000);
-    const onStorage = () => void refresh().catch(() => undefined);
+    const onStorage = (
+      changes: Record<string, chrome.storage.StorageChange>,
+      areaName: string,
+    ) => {
+      if (
+        areaName === "local" &&
+        ["settings", "timer", "stats"].some((key) => Object.hasOwn(changes, key))
+      ) {
+        void refresh().catch(() => undefined);
+      }
+    };
     chrome.storage.onChanged.addListener(onStorage);
     return () => {
       window.clearInterval(clock);

@@ -2,6 +2,7 @@ import type { ActivitySnapshot, AppSnapshot, UserSettings } from "./types";
 
 export type ExtensionRequest =
   | { type: "GET_APP_STATE" }
+  | { type: "CONTENT_READY" }
   | { type: "UPDATE_SETTINGS"; patch: Partial<UserSettings> }
   | { type: "SYNC_SITE_ACCESS" }
   | { type: "START_SESSION" }
@@ -22,6 +23,7 @@ export type ContentCommand =
   | { type: "SHOW_BREAK_PROMPT"; state: AppSnapshot }
   | { type: "SHOW_ACTIVE_BREAK"; state: AppSnapshot; playSound?: boolean }
   | { type: "SET_ACTIVITY_TRACKING"; enabled: boolean }
+  | { type: "SET_PAUSE_REPORTING"; enabled: boolean }
   | { type: "HIDE_BREAK_UI" };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -52,6 +54,7 @@ export function isExtensionRequest(value: unknown): value is ExtensionRequest {
   if (!isRecord(value) || typeof value.type !== "string") return false;
   switch (value.type) {
     case "GET_APP_STATE":
+    case "CONTENT_READY":
     case "PAUSE_TIMER":
     case "RESUME_TIMER":
     case "TAKE_BREAK_NOW":

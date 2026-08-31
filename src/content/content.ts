@@ -9,16 +9,33 @@ if (!contentScope.__blinkBreakContentLoaded) {
   const tracker = new ActivityTracker();
   const breakSurface = new BreakSurface();
   let tracking = false;
+  let reportingRequested = false;
 
   const setTracking = (enabled: boolean): void => {
     if (enabled === tracking) return;
     tracking = enabled;
-    if (enabled) tracker.start();
-    else tracker.stop();
+    if (enabled) {
+      tracker.start();
+      tracker.setReportingEnabled(reportingRequested);
+    }
+    else {
+      tracker.stop();
+    }
   };
 
-  void sendRequest({ type: "GET_APP_STATE" })
-    .then((response) => setTracking(Boolean(response.ok && response.state?.settings.smartInterruptionEnabled)))
+  const setReporting = (enabled: boolean): void => {
+    reportingRequested = enabled;
+    tracker.setReportingEnabled(tracking && reportingRequested);
+  };
+
+  void sendRequest({ type: "CONTENT_READY" })
+    .then((response) => {
+      const state = response.ok ? response.state : undefined;
+      setTracking(Boolean(state?.settings.smartInterruptionEnabled));
+      setReporting(
+        Boolean(state?.settings.smartInterruptionEnabled && state.timer.status === "waiting_for_pause"),
+      );
+    })
     .catch(() => undefined);
 
   chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
@@ -32,6 +49,8 @@ if (!contentScope.__blinkBreakContentLoaded) {
       breakSurface.hide();
     } else if (message?.type === "SET_ACTIVITY_TRACKING" && typeof message.enabled === "boolean") {
       setTracking(message.enabled);
+    } else if (message?.type === "SET_PAUSE_REPORTING" && typeof message.enabled === "boolean") {
+      setReporting(message.enabled);
     }
   });
 }

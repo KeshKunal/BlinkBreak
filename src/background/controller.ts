@@ -8,7 +8,6 @@ import {
   loadAppSnapshot,
   saveAppSnapshot,
   saveSettings,
-  saveStats,
   saveTimer,
 } from "../shared/storage";
 import type { ActivitySnapshot, AppSnapshot, TimerState } from "../shared/types";
@@ -22,6 +21,7 @@ const SCHEDULER_ALARM = "blinkbreak-scheduler";
 export class BlinkBreakController {
   private content = new ContentBridge();
   private operation = Promise.resolve();
+  private initialized = false;
 
   register(): void {
     chrome.runtime.onInstalled.addListener((details) => {
@@ -50,12 +50,14 @@ export class BlinkBreakController {
     });
 
     chrome.tabs.onActivated.addListener(({ tabId }) => {
-      void this.enqueue(() => this.content.showOnTab(tabId));
+      void this.enqueue(() => this.syncTab(tabId));
     });
 
     chrome.windows.onFocusChanged.addListener(() => {
-      void this.enqueue(() => this.content.showOnActiveTab());
+      void this.enqueue(() => this.syncActiveTab());
     });
+
+    chrome.tabs.onRemoved.addListener((tabId) => this.content.forgetTab(tabId));
 
     chrome.permissions.onAdded.addListener(() =>
       void this.enqueue(() => this.content.syncRegistration(true)),
@@ -77,15 +79,16 @@ export class BlinkBreakController {
   }
 
   private async initialize(): Promise<void> {
+    if (this.initialized) return;
     await this.content.syncRegistration();
     const state = await loadAppSnapshot();
     state.timer = recoverTimer(state.timer, state.settings);
     await saveAppSnapshot(state);
-    await this.schedule(state);
-    await this.updateAction(state.timer);
+    await this.syncRuntime(state);
     if (["prompt_ready", "break_active"].includes(state.timer.status)) {
       await this.content.showOnActiveTab(state);
     }
+    this.initialized = true;
   }
 
   private async handleRequest(
@@ -95,12 +98,21 @@ export class BlinkBreakController {
     switch (message.type) {
       case "GET_APP_STATE": {
         const state = await loadAppSnapshot();
-        await saveStats(state.stats);
+        return { ok: true, state };
+      }
+
+      case "CONTENT_READY": {
+        if (sender.tab?.id === undefined) {
+          return { ok: false, error: "Content context rejected" };
+        }
+        this.content.noteReady(sender.tab.id);
+        const state = await loadAppSnapshot();
+        await this.content.showOnTab(sender.tab.id, state);
         return { ok: true, state };
       }
 
       case "ACTIVITY_UPDATE": {
-        if (sender.tab?.id === undefined) {
+        if (sender.tab?.id === undefined || sender.tab.active !== true) {
           return { ok: false, error: "Activity update rejected" };
         }
         this.content.rememberActivity(sender.tab.id, message.snapshot);
@@ -111,8 +123,8 @@ export class BlinkBreakController {
             state.settings.sensitivity,
           );
           if (assessment.risk === "low") await this.evaluateDueBreak(message.snapshot, state);
-        } else if (["prompt_ready", "break_active"].includes(state.timer.status)) {
-          await this.content.showOnTab(sender.tab.id, state);
+        } else {
+          await this.content.setPauseReportingOnTab(sender.tab.id, false);
         }
         return { ok: true };
       }
@@ -130,10 +142,11 @@ export class BlinkBreakController {
         }
         await saveSettings(state.settings);
         await saveTimer(state.timer);
-        await this.schedule(state);
         await this.content.broadcastTracking(state.settings.smartInterruptionEnabled);
         if (!state.settings.smartInterruptionEnabled && state.timer.status === "waiting_for_pause") {
           await this.evaluateDueBreak(null, state);
+        } else {
+          await this.syncRuntime(state);
         }
         return { ok: true, state };
       }
@@ -149,8 +162,7 @@ export class BlinkBreakController {
         state.timer = createDefaultTimer(Date.now(), state.settings);
         await saveTimer(state.timer);
         await this.content.hideOnActiveTab();
-        await this.schedule(state);
-        await this.updateAction(state.timer);
+        await this.syncRuntime(state);
         return { ok: true, state };
       }
 
@@ -172,8 +184,7 @@ export class BlinkBreakController {
         state.timer = transitionTimer(state.timer, { type: "DUE" }, state.settings);
         state.timer = transitionTimer(state.timer, { type: "PROMPT" }, state.settings);
         await saveTimer(state.timer);
-        await this.schedule(state);
-        await this.updateAction(state.timer);
+        await this.syncRuntime(state);
         await this.content.showOnActiveTab(state);
         return { ok: true, state };
       }
@@ -182,8 +193,7 @@ export class BlinkBreakController {
         const state = await loadAppSnapshot();
         state.timer = transitionTimer(state.timer, { type: "START_BREAK" }, state.settings);
         await saveAppSnapshot(state);
-        await this.schedule(state);
-        await this.updateAction(state.timer);
+        await this.syncRuntime(state);
         await this.content.showOnActiveTab(state, sender.tab?.id === undefined);
         return { ok: true, state };
       }
@@ -215,8 +225,7 @@ export class BlinkBreakController {
     await mutation(state);
     await saveAppSnapshot(state);
     if (hideSurface) await this.content.hideOnActiveTab();
-    await this.schedule(state);
-    await this.updateAction(state.timer);
+    await this.syncRuntime(state);
     return { ok: true, state };
   }
 
@@ -238,8 +247,7 @@ export class BlinkBreakController {
     );
     state.stats.focusSessions += 1;
     await saveAppSnapshot(state);
-    await this.schedule(state);
-    await this.updateAction(state.timer);
+    await this.syncRuntime(state);
     return { ok: true, state };
   }
 
@@ -265,7 +273,7 @@ export class BlinkBreakController {
     if (["paused", "prompt_ready", "break_active"].includes(state.timer.status)) return;
     const now = Date.now();
     if (["counting", "deferred"].includes(state.timer.status) && state.timer.nextBreakDueAt > now) {
-      await this.schedule(state);
+      await this.syncRuntime(state);
       return;
     }
 
@@ -277,8 +285,7 @@ export class BlinkBreakController {
     if (!state.settings.smartInterruptionEnabled || assessment.risk === "low") {
       state.timer = transitionTimer(state.timer, { type: "PROMPT" }, state.settings, now);
       await saveTimer(state.timer);
-      await this.schedule(state);
-      await this.updateAction(state.timer);
+      await this.syncRuntime(state);
       await this.content.showOnActiveTab(state);
       return;
     }
@@ -290,12 +297,10 @@ export class BlinkBreakController {
       now,
     );
     await saveTimer(state.timer);
-    await this.schedule(state);
-    await this.updateAction(state.timer);
+    await this.syncRuntime(state);
   }
 
   private async schedule(state: AppSnapshot): Promise<void> {
-    await chrome.alarms.clear(SCHEDULER_ALARM);
     let when: number | null = null;
     switch (state.timer.status) {
       case "counting":
@@ -320,7 +325,36 @@ export class BlinkBreakController {
     }
     if (when !== null) {
       await chrome.alarms.create(SCHEDULER_ALARM, { when: Math.max(Date.now() + 500, when) });
+    } else {
+      await chrome.alarms.clear(SCHEDULER_ALARM);
     }
+  }
+
+  private async syncRuntime(state: AppSnapshot): Promise<void> {
+    await Promise.all([
+      this.schedule(state),
+      this.updateAction(state.timer),
+      this.content.setPauseReportingOnActiveTab(
+        state.settings.smartInterruptionEnabled && state.timer.status === "waiting_for_pause",
+      ),
+    ]);
+  }
+
+  private async syncActiveTab(): Promise<void> {
+    const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+    if (tab?.id !== undefined) await this.syncTab(tab.id);
+  }
+
+  private async syncTab(tabId: number): Promise<void> {
+    await this.content.ensureOnTab(tabId);
+    const state = await loadAppSnapshot();
+    await Promise.all([
+      this.content.showOnTab(tabId, state),
+      this.content.setPauseReportingOnTab(
+        tabId,
+        state.settings.smartInterruptionEnabled && state.timer.status === "waiting_for_pause",
+      ),
+    ]);
   }
 
   private async updateAction(timer: TimerState): Promise<void> {

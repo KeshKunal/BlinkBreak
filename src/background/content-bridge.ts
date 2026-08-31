@@ -7,6 +7,17 @@ const ACTIVITY_FRESHNESS_MS = 90_000;
 
 export class ContentBridge {
   private latestActivity = new Map<number, ActivitySnapshot>();
+  private knownTabs = new Set<number>();
+  private hasSiteAccess = false;
+
+  noteReady(tabId: number): void {
+    this.knownTabs.add(tabId);
+  }
+
+  forgetTab(tabId: number): void {
+    this.knownTabs.delete(tabId);
+    this.latestActivity.delete(tabId);
+  }
 
   rememberActivity(tabId: number, snapshot: ActivitySnapshot): void {
     this.latestActivity.set(tabId, snapshot);
@@ -16,10 +27,13 @@ export class ContentBridge {
     const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
     if (tab?.id === undefined) return null;
 
+    let timeoutId: ReturnType<typeof setTimeout> | undefined;
     try {
       const response = await Promise.race([
         chrome.tabs.sendMessage(tab.id, { type: "GET_ACTIVITY_SNAPSHOT" }),
-        new Promise<null>((resolve) => setTimeout(() => resolve(null), 1_200)),
+        new Promise<null>((resolve) => {
+          timeoutId = setTimeout(() => resolve(null), 1_200);
+        }),
       ]);
       if (isActivitySnapshot(response)) {
         this.latestActivity.set(tab.id, response);
@@ -27,6 +41,8 @@ export class ContentBridge {
       }
     } catch {
       // Restricted pages cannot host content scripts; use any fresh in-memory signal.
+    } finally {
+      if (timeoutId !== undefined) clearTimeout(timeoutId);
     }
 
     const cached = this.latestActivity.get(tab.id);
@@ -64,6 +80,35 @@ export class ContentBridge {
     }
   }
 
+  async setPauseReportingOnActiveTab(enabled: boolean): Promise<void> {
+    const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+    if (tab?.id !== undefined) await this.setPauseReportingOnTab(tab.id, enabled);
+  }
+
+  async setPauseReportingOnTab(tabId: number, enabled: boolean): Promise<void> {
+    try {
+      await chrome.tabs.sendMessage(tabId, {
+        type: "SET_PAUSE_REPORTING",
+        enabled,
+      } satisfies ContentCommand);
+    } catch {
+      // The active tab may not have optional site access or a content context.
+    }
+  }
+
+  async ensureOnTab(tabId: number): Promise<void> {
+    if (!this.hasSiteAccess || this.knownTabs.has(tabId)) return;
+    try {
+      await chrome.scripting.executeScript({
+        target: { tabId },
+        files: ["content.js"],
+      });
+      this.knownTabs.add(tabId);
+    } catch {
+      // Browser-owned, file, and extension-store pages correctly reject injection.
+    }
+  }
+
   async syncRegistration(injectOpenTabs = false): Promise<void> {
     const hasAccess = await chrome.permissions.contains({
       permissions: ["scripting"],
@@ -73,6 +118,7 @@ export class ContentBridge {
       ?.getRegisteredContentScripts({ ids: [CONTENT_SCRIPT_ID] })
       .catch(() => []);
     const exists = Boolean(registered?.length);
+    this.hasSiteAccess = hasAccess;
 
     if (hasAccess && !exists) {
       await chrome.scripting.registerContentScripts([
@@ -88,40 +134,36 @@ export class ContentBridge {
       await chrome.scripting.unregisterContentScripts({ ids: [CONTENT_SCRIPT_ID] });
     }
 
-    if (hasAccess && (injectOpenTabs || !exists)) await this.injectIntoOpenTabs();
+    if (!hasAccess) {
+      this.knownTabs.clear();
+      this.latestActivity.clear();
+    } else if (injectOpenTabs || !exists) {
+      await this.injectIntoActiveTab();
+    }
   }
 
   async broadcastTracking(enabled: boolean): Promise<void> {
     const tabs = await chrome.tabs.query({});
-    await Promise.all(
-      tabs.map(async (tab) => {
-        if (tab.id === undefined) return;
-        try {
-          await chrome.tabs.sendMessage(tab.id, {
-            type: "SET_ACTIVITY_TRACKING",
-            enabled,
-          } satisfies ContentCommand);
-        } catch {
-          // The tab either lacks optional site access or has not loaded the script yet.
-        }
-      }),
-    );
+    const batchSize = 12;
+    for (let index = 0; index < tabs.length; index += batchSize) {
+      await Promise.all(
+        tabs.slice(index, index + batchSize).map(async (tab) => {
+          if (tab.id === undefined) return;
+          try {
+            await chrome.tabs.sendMessage(tab.id, {
+              type: "SET_ACTIVITY_TRACKING",
+              enabled,
+            } satisfies ContentCommand);
+          } catch {
+            // The tab either lacks optional site access or has not loaded the script yet.
+          }
+        }),
+      );
+    }
   }
 
-  private async injectIntoOpenTabs(): Promise<void> {
-    const tabs = await chrome.tabs.query({});
-    await Promise.all(
-      tabs.map(async (tab) => {
-        if (tab.id === undefined) return;
-        try {
-          await chrome.scripting.executeScript({
-            target: { tabId: tab.id },
-            files: ["content.js"],
-          });
-        } catch {
-          // Browser-owned, file, and extension-store pages correctly reject injection.
-        }
-      }),
-    );
+  private async injectIntoActiveTab(): Promise<void> {
+    const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+    if (tab?.id !== undefined) await this.ensureOnTab(tab.id);
   }
 }

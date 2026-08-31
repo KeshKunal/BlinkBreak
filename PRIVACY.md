@@ -22,7 +22,7 @@ When smart timing is enabled, the content script keeps short-lived in-memory sig
 - counts of keyboard and general interactions in the previous 30 seconds;
 - whether the page is visible, the window is focused, fullscreen is active, or HTML media is playing.
 
-These signals are reduced to an interruption score locally. They are not written to storage and disappear when the page or service worker closes.
+These signals are reduced to an interruption score locally. During ordinary browsing they remain inside the current page and do not periodically wake the service worker. A transient snapshot is requested when a break becomes due; quiet reporting is enabled only while BlinkBreak is waiting for a natural pause. Signals are not written to storage and disappear when the page or service worker closes.
 
 ## Data BlinkBreak never collects
 

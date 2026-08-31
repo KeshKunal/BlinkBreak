@@ -17,7 +17,7 @@ No server exists. Chrome local storage is the only durable data store.
 - `src/background/interruption-engine.ts` is the pure, interpretable interruption score.
 - `src/background/controller.ts` serializes extension events, persists transitions, schedules alarms, and coordinates tabs.
 - `src/background/content-bridge.ts` owns optional script registration, tab messaging, overlay delivery, and ephemeral activity snapshots.
-- `src/content/activity-tracker.ts` collects timestamps and booleans only; it is event-driven and sends an explicit quiet signal after 15.5 seconds.
+- `src/content/activity-tracker.ts` collects timestamps and booleans only. Signals remain in the page during ordinary browsing; background reporting is enabled only while a due break is waiting for a natural pause, then sends one explicit quiet signal after 15.5 seconds.
 - `src/content/break-surface.ts` owns the prompt, guided break, completion, focus trap, and Shadow DOM design system.
 - `src/shared/storage.ts` is the typed `chrome.storage.local` boundary.
 - `src/shared/validation.ts` repairs untrusted or obsolete stored data.
@@ -76,7 +76,9 @@ When the script cannot run (for example, a browser-owned page), the engine degra
 
 ## Optional site access
 
-The install manifest contains no required host patterns and no static content script. After informed consent, BlinkBreak requests `scripting` plus ordinary HTTP/HTTPS origins, registers the packaged `content.js`, and injects it into already-open eligible tabs. A global isolated-world marker prevents duplicate listeners.
+The install manifest contains no required host patterns and no static content script. After informed consent, BlinkBreak requests `scripting` plus ordinary HTTP/HTTPS origins, registers the packaged `content.js`, and injects only the active eligible tab; registered injection handles later navigations. A global isolated-world marker prevents duplicate listeners.
+
+Tab injection and settings broadcasts are bounded to avoid startup spikes with large tab sets. The service worker forgets transient activity when a tab closes, clears snapshot timeouts promptly, and replaces one-shot alarms in place instead of clearing and recreating them.
 
 Turning adaptive timing off stops the activity tracker in every injected tab. Removing page access unregisters the dynamic script; fixed scheduling still works.
 
