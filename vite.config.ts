@@ -8,6 +8,9 @@ const projectRoot = fileURLToPath(new URL(".", import.meta.url));
 export default defineConfig({
   plugins: [react()],
   build: {
+    target: "chrome120",
+    cssTarget: "chrome120",
+    modulePreload: { polyfill: false },
     emptyOutDir: true,
     sourcemap: false,
     rollupOptions: {

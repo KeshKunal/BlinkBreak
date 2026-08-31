@@ -28,7 +28,7 @@ npm run verify:dist
 npm run check
 ```
 
-`npm run build` also validates Manifest V3, required entry points, icons, and non-empty runtime bundles.
+`npm run build` also validates Manifest V3, required entry points, icons, explicit CSP, absence of remote scripts and source maps, 64 KiB runtime bundle limits, and a 512 KiB total package budget.
 
 ## Project layout
 
@@ -54,6 +54,7 @@ Unit tests target the deterministic core:
 - default and malformed settings recovery;
 - valid/invalid message payloads;
 - settings persistence and malformed local storage.
+- activity reporting remains silent during ordinary browsing, waits for a quiet window, and cancels cleanly.
 
 Chrome API orchestration is intentionally thin around those pure modules. Always supplement automated checks with the extension acceptance pass below.
 
@@ -73,6 +74,7 @@ Chrome API orchestration is intentionally thin around those pure modules. Always
 12. Remove page access in Settings and verify fixed scheduling, popup, and badge continue while page observation stops.
 13. Inspect `chrome.storage.local` and verify it contains only `settings`, `timer`, and aggregate `stats`.
 14. Inspect the service worker network panel and verify there are no external requests.
+15. With smart timing enabled and no break due, inspect the service worker and verify page activity does not wake it periodically.
 
 ## Release checklist
 

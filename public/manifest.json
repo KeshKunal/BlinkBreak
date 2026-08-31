@@ -5,6 +5,9 @@
   "version": "1.0.0",
   "description": "Eye breaks that wait for a natural pause.",
   "minimum_chrome_version": "120",
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'none';"
+  },
   "permissions": ["alarms", "storage"],
   "optional_permissions": ["scripting"],
   "optional_host_permissions": ["http://*/*", "https://*/*"],
