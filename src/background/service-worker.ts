@@ -1,3 +1,3 @@
-import { loadAppSnapshot, saveAppSnapshot } from "../shared/storage";
+import { BlinkBreakController } from "./controller";
 
-void loadAppSnapshot().then(saveAppSnapshot).catch(() => undefined);
+new BlinkBreakController().register();

@@ -32,6 +32,8 @@ export function createDefaultTimer(
     lastBreakCompletedAt: null,
     nextBreakDueAt: now + settings.breakIntervalMinutes * MINUTE_MS,
     breakDeferredUntil: null,
+    nextEvaluationAt: null,
+    activeBreakStartedAt: null,
     remainingWhenPausedMs: null,
     consecutiveDeferrals: 0,
     lastTransitionAt: now,

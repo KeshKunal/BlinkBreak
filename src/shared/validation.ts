@@ -103,6 +103,14 @@ export function sanitizeTimer(
       source.breakDeferredUntil === null || source.breakDeferredUntil === undefined
         ? null
         : timestamp(source.breakDeferredUntil, now),
+    nextEvaluationAt:
+      source.nextEvaluationAt === null || source.nextEvaluationAt === undefined
+        ? null
+        : timestamp(source.nextEvaluationAt, now),
+    activeBreakStartedAt:
+      source.activeBreakStartedAt === null || source.activeBreakStartedAt === undefined
+        ? null
+        : timestamp(source.activeBreakStartedAt, now),
     remainingWhenPausedMs:
       source.remainingWhenPausedMs === null || source.remainingWhenPausedMs === undefined
         ? null

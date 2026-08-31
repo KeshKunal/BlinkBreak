@@ -1,0 +1,82 @@
+import { describe, expect, it } from "vitest";
+import type { ActivitySnapshot } from "../shared/types";
+import { assessInterruption } from "./interruption-engine";
+
+const now = 1_800_000_000_000;
+
+function snapshot(overrides: Partial<ActivitySnapshot> = {}): ActivitySnapshot {
+  return {
+    capturedAt: now,
+    lastInteractionAt: now,
+    lastKeyboardAt: 0,
+    lastPointerAt: 0,
+    lastScrollAt: 0,
+    lastClickAt: 0,
+    interactionsIn30Seconds: 0,
+    keyboardEventsIn30Seconds: 0,
+    pageVisible: true,
+    windowFocused: true,
+    fullscreen: false,
+    mediaPlaying: false,
+    ...overrides,
+  };
+}
+
+describe("interruption engine", () => {
+  it("classifies rapid typing as high interruption risk", () => {
+    const result = assessInterruption(
+      snapshot({
+        lastKeyboardAt: now - 500,
+        keyboardEventsIn30Seconds: 18,
+        interactionsIn30Seconds: 22,
+      }),
+      "balanced",
+      now,
+    );
+    expect(result.risk).toBe("high");
+    expect(result.reasons).toContain("Sustained typing");
+  });
+
+  it("treats fullscreen playback as high risk", () => {
+    const result = assessInterruption(
+      snapshot({ fullscreen: true, mediaPlaying: true, lastInteractionAt: now - 20_000 }),
+      "balanced",
+      now,
+    );
+    expect(result.risk).toBe("high");
+  });
+
+  it("recognizes a quiet window as a natural pause", () => {
+    const result = assessInterruption(
+      snapshot({ lastInteractionAt: now - 20_000 }),
+      "balanced",
+      now,
+    );
+    expect(result.risk).toBe("low");
+    expect(result.reasons).toContain("Natural pause detected");
+  });
+
+  it("transitions from high to low when the user pauses", () => {
+    const busy = assessInterruption(
+      snapshot({
+        lastInteractionAt: now,
+        lastKeyboardAt: now,
+        keyboardEventsIn30Seconds: 12,
+        interactionsIn30Seconds: 15,
+      }),
+      "balanced",
+      now,
+    );
+    const quiet = assessInterruption(
+      snapshot({ lastInteractionAt: now - 16_000 }),
+      "balanced",
+      now,
+    );
+    expect(busy.risk).toBe("high");
+    expect(quiet.risk).toBe("low");
+  });
+
+  it("degrades safely when a restricted page has no activity signal", () => {
+    expect(assessInterruption(null, "balanced", now).risk).toBe("low");
+  });
+});

@@ -31,6 +31,8 @@ export interface TimerState {
   lastBreakCompletedAt: number | null;
   nextBreakDueAt: number;
   breakDeferredUntil: number | null;
+  nextEvaluationAt: number | null;
+  activeBreakStartedAt: number | null;
   remainingWhenPausedMs: number | null;
   consecutiveDeferrals: number;
   lastTransitionAt: number;
