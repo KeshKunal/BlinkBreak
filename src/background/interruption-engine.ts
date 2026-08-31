@@ -70,7 +70,7 @@ export function assessInterruption(
     reasons.push("Active interaction");
   } else if (interactionAge <= 7_000) {
     score += 13;
-  } else if (interactionAge >= 15_000) {
+  } else if (interactionAge >= 15_000 && !snapshot.mediaPlaying && !snapshot.fullscreen) {
     score -= 38;
     reasons.push("Natural pause detected");
   }

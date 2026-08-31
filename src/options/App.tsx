@@ -101,6 +101,9 @@ export function App() {
     ? Math.round(state.stats.totalCompletedIntervalMs / state.stats.completed / 60_000)
     : null;
   const longestMinutes = Math.round(state.stats.longestUninterruptedMs / 60_000);
+  const breakTime = state.stats.totalBreakSeconds < 60
+    ? `${Math.round(state.stats.totalBreakSeconds)}s`
+    : `${Math.round(state.stats.totalBreakSeconds / 60)}m`;
 
   return (
     <div className="settings-layout">
@@ -285,7 +288,7 @@ export function App() {
           </div>
           <div className="stats-grid">
             <Stat icon={<Eye />} value={String(state.stats.completed)} label="Breaks completed" />
-            <Stat icon={<TimerReset />} value={`${Math.round(state.stats.totalBreakSeconds / 60)}m`} label="Time looking away" />
+            <Stat icon={<TimerReset />} value={breakTime} label="Time looking away" />
             <Stat icon={<Gauge />} value={averageInterval ? `${averageInterval}m` : "—"} label="Average interval" />
             <Stat icon={<Activity />} value={String(state.stats.deferred)} label="Breaks deferred" />
             <Stat icon={<Sparkles />} value={String(state.stats.focusSessions)} label="Focus sessions" />

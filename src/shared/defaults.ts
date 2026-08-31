@@ -5,7 +5,7 @@ export const MINUTE_MS = 60_000;
 export const DEFAULT_SETTINGS: UserSettings = {
   breakIntervalMinutes: 15,
   breakDurationSeconds: 20,
-  smartInterruptionEnabled: true,
+  smartInterruptionEnabled: false,
   sensitivity: "balanced",
   defaultDeferralMinutes: 5,
   soundEnabled: false,

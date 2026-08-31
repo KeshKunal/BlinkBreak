@@ -203,7 +203,9 @@ export function App() {
         <p className="card-note">
           {state.stats.completed === 0
             ? "No pressure. Small pauses add up naturally."
-            : `${Math.round(state.stats.totalBreakSeconds / 60)} min away from the screen so far.`}
+            : state.stats.totalBreakSeconds < 60
+              ? `${Math.round(state.stats.totalBreakSeconds)} sec away from the screen so far.`
+              : `${Math.round(state.stats.totalBreakSeconds / 60)} min away from the screen so far.`}
         </p>
       </section>
 

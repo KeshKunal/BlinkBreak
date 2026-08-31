@@ -46,6 +46,15 @@ describe("interruption engine", () => {
     expect(result.risk).toBe("high");
   });
 
+  it("waits during non-fullscreen media playback even without interaction", () => {
+    const result = assessInterruption(
+      snapshot({ mediaPlaying: true, lastInteractionAt: now - 60_000 }),
+      "balanced",
+      now,
+    );
+    expect(["medium", "high"]).toContain(result.risk);
+  });
+
   it("recognizes a quiet window as a natural pause", () => {
     const result = assessInterruption(
       snapshot({ lastInteractionAt: now - 20_000 }),

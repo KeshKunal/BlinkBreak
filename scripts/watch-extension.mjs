@@ -12,8 +12,7 @@ function build() {
     return;
   }
   building = true;
-  const command = process.platform === "win32" ? "npm.cmd" : "npm";
-  const child = spawn(command, ["run", "build"], { stdio: "inherit" });
+  const child = spawn(process.execPath, ["scripts/build-extension.mjs"], { stdio: "inherit" });
   child.on("exit", () => {
     building = false;
     if (queued) {
@@ -25,7 +24,7 @@ function build() {
 
 build();
 for (const target of targets) {
-  watch(target, { recursive: true }, () => {
+  watch(target, { recursive: !target.endsWith(".html") }, () => {
     clearTimeout(debounce);
     debounce = setTimeout(build, 180);
   });

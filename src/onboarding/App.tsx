@@ -147,7 +147,7 @@ function NaturalPauseStep() {
   return (
     <div className="step-grid pause-step">
       <div className="step-copy">
-        <p className="onboarding-kicker">SMART BY DEFAULT</p>
+        <p className="onboarding-kicker">SMART WHEN IT HELPS</p>
         <h1>I wait for a<br />better moment.</h1>
         <p>When a break is due, BlinkBreak notices whether you're active and holds the reminder until things settle.</p>
         <div className="step-promise"><Activity /><span><strong>Helpful over interruptive</strong><small>Deterministic, local, and easy to understand.</small></span></div>
