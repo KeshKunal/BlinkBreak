@@ -6,6 +6,7 @@ import type { AppSnapshot } from "../shared/types";
 import { BreakSurface } from "./break-surface";
 
 const now = 1_800_000_000_000;
+const sendMessage = vi.fn();
 
 function activeState(): AppSnapshot {
   return {
@@ -30,10 +31,20 @@ beforeEach(() => {
     configurable: true,
     value: "visible",
   });
+  sendMessage.mockReset();
+  sendMessage.mockResolvedValue({
+    ok: true,
+    state: {
+      ...activeState(),
+      timer: createDefaultTimer(now + DEFAULT_SETTINGS.breakDurationSeconds * 1_000),
+    },
+  });
+  vi.stubGlobal("chrome", { runtime: { sendMessage } });
 });
 
 afterEach(() => {
   document.getElementById("blinkbreak-break-surface")?.remove();
+  vi.unstubAllGlobals();
   vi.useRealTimers();
 });
 
@@ -86,5 +97,21 @@ describe("break surface rendering", () => {
     expect(vi.getTimerCount()).toBe(1);
     surface.hide();
     expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("dismisses the completion acknowledgement after 1.5 seconds", async () => {
+    const surface = new BreakSurface();
+    surface.showActive(activeState());
+    await vi.advanceTimersByTimeAsync(DEFAULT_SETTINGS.breakDurationSeconds * 1_000);
+
+    expect(sendMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ type: "COMPLETE_BREAK" }),
+    );
+    expect(document.getElementById("blinkbreak-break-surface")).not.toBeNull();
+
+    await vi.advanceTimersByTimeAsync(1_499);
+    expect(document.getElementById("blinkbreak-break-surface")).not.toBeNull();
+    await vi.advanceTimersByTimeAsync(1);
+    expect(document.getElementById("blinkbreak-break-surface")).toBeNull();
   });
 });

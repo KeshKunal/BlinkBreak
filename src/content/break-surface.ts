@@ -267,7 +267,10 @@ export class BreakSurface {
     this.view = "complete";
     this.activeBreakStartedAt = null;
     this.root.querySelector(".backdrop")?.remove();
-    const { content } = this.shell();
+    const { backdrop, panel, content } = this.shell();
+    backdrop.classList.add("complete-backdrop");
+    panel.classList.add("complete-panel");
+    content.classList.add("complete-content");
     const success = element("div", "success-mark");
     success.append(element("span", "success-check", "✓"));
     const eyebrow = element("p", "eyebrow", "ALL SET");
@@ -276,16 +279,13 @@ export class BreakSurface {
     const description = element(
       "p",
       "description",
-      `Your eyes got a moment to reset. Next break in about ${this.state.settings.breakIntervalMinutes} minutes.`,
+      `Back to focus. Your next reset is in about ${this.state.settings.breakIntervalMinutes} minutes.`,
     );
-    const close = element("button", "primary compact", "Back to focus");
-    close.type = "button";
-    close.addEventListener("click", () => this.hide());
-    content.append(success, eyebrow, title, description, close);
-    this.scheduleTask(() => {
-      if (close.isConnected) close.focus();
-    }, 30);
-    this.scheduleTask(() => this.hide(), 5_000);
+    const progress = element("div", "completion-progress");
+    progress.setAttribute("aria-hidden", "true");
+    progress.append(element("span"));
+    content.append(success, eyebrow, title, description, progress);
+    this.scheduleTask(() => this.hide(), 1_500);
   }
 
   private async startBreak(): Promise<void> {
@@ -479,9 +479,16 @@ const SURFACE_STYLES = `
   .blink-mark.done { background: var(--accent); transform: scaleX(.75); }
   .text-button { min-height: 34px; color: var(--muted); background: transparent; padding: 0 10px; font-weight: 600; }
   .text-button:hover { color: var(--text); }
-  .success-mark { display: grid; width: 96px; height: 96px; margin: 0 0 24px; place-items: center; border-radius: 50%; color: var(--accent); background: var(--soft); animation: bb-success 420ms cubic-bezier(.22,1,.36,1) both; }
-  .success-check { font-size: 36px; font-weight: 400; transform: translateY(-1px); }
-  .compact { min-width: 150px; margin-top: 28px; }
+  .complete-backdrop { animation: bb-fade-in 160ms ease-out both, bb-fade-out 180ms 1.32s ease-in forwards; }
+  .complete-panel { width: min(390px, calc(100vw - 32px)); }
+  .complete-content { padding: 25px 34px 27px; }
+  .complete-content .title { font-size: 25px; }
+  .complete-content .description { max-width: 300px; margin-top: 9px; font-size: 13.5px; }
+  .success-mark { position: relative; display: grid; width: 72px; height: 72px; margin: 0 0 17px; place-items: center; border: 1px solid color-mix(in srgb, var(--accent) 22%, transparent); border-radius: 50%; color: var(--accent); background: color-mix(in srgb, var(--accent) 10%, var(--surface)); box-shadow: 0 10px 30px color-mix(in srgb, var(--accent) 10%, transparent); animation: bb-success 380ms cubic-bezier(.22,1,.36,1) both; }
+  .success-mark::before { content: ""; position: absolute; inset: 7px; border: 1px solid color-mix(in srgb, var(--accent) 15%, transparent); border-radius: inherit; }
+  .success-check { font-size: 29px; font-weight: 500; line-height: 1; transform: translateY(-1px); }
+  .completion-progress { width: 128px; height: 2px; overflow: hidden; margin-top: 21px; border-radius: 999px; background: var(--border); }
+  .completion-progress span { display: block; width: 100%; height: 100%; border-radius: inherit; background: var(--accent); transform-origin: left; animation: bb-completion-progress 1.5s linear forwards; }
   @keyframes bb-fade-in { from { opacity: 0; } }
   @keyframes bb-rise { from { opacity: 0; transform: translateY(10px) scale(.985); } }
   @keyframes bb-reveal { from { opacity: 0; transform: translateY(-3px); } }
@@ -490,6 +497,8 @@ const SURFACE_STYLES = `
   @keyframes bb-eye-gaze { 0%, 14%, 100% { transform: translate(0, 0); } 29%, 42% { transform: translate(10px, -3px); } 57%, 70% { transform: translate(-9px, 5px); } 82%, 92% { transform: translate(3px, 3px); } }
   @keyframes bb-eye-blink { 0%, 40%, 44%, 72%, 76%, 100% { transform: scaleY(1); } 42%, 74% { transform: scaleY(.08); } }
   @keyframes bb-success { from { opacity: 0; transform: scale(.75); } }
+  @keyframes bb-completion-progress { to { transform: scaleX(0); } }
+  @keyframes bb-fade-out { to { opacity: 0; } }
   [data-motion="reduced"] *, [data-motion="reduced"] *::before, [data-motion="reduced"] *::after { animation: none !important; transition-duration: .01ms !important; }
   @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition-duration: .01ms !important; } }
   @media (max-width: 480px) { .backdrop { padding: 12px; } .panel { border-radius: 22px; } .content { padding: 25px 24px 30px; } .title { font-size: 25px; } }
