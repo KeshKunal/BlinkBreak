@@ -13,7 +13,7 @@ import {
 } from "lucide-react";
 import { Brand } from "../shared/components/Brand";
 import { Button } from "../shared/components/Button";
-import { sendRequest } from "../shared/messages";
+import { sendRequest, type BackgroundResponse } from "../shared/messages";
 import { applyAnimationPreference, applyTheme } from "../shared/theme";
 import type { AppSnapshot, TimerState } from "../shared/types";
 import { usePageVisibilityLifecycle } from "../shared/use-page-visibility";
@@ -59,13 +59,19 @@ export function App() {
   const theme = state?.settings.theme;
   const animationPreference = state?.settings.animationPreference;
 
-  const refresh = useCallback(async () => {
-    const response = await sendRequest({ type: "GET_APP_STATE" });
-    if (response.ok && response.state) {
-      setState(response.state);
-      setError(false);
+  const acceptResponse = useCallback((response: BackgroundResponse) => {
+    if (!response.ok || !response.state) return;
+    if (response.state.timer.status === "break_active" && response.pageBreakSurfaceShown) {
+      window.close();
+      return;
     }
+    setState(response.state);
+    setError(false);
   }, []);
+
+  const refresh = useCallback(async () => {
+    acceptResponse(await sendRequest({ type: "GET_POPUP_STATE" }));
+  }, [acceptResponse]);
 
   useEffect(() => {
     const initial = window.setTimeout(() => void refresh().catch(() => setError(true)), 0);
@@ -97,7 +103,7 @@ export function App() {
     setPending(label);
     try {
       const response = await sendRequest(action);
-      if (response.ok && response.state) setState(response.state);
+      acceptResponse(response);
     } finally {
       setPending(null);
     }

@@ -64,6 +64,24 @@ describe("break surface rendering", () => {
     surface.hide();
   });
 
+  it("keeps only one break surface when another runtime mounts", () => {
+    const first = new BreakSurface();
+    const second = new BreakSurface();
+
+    try {
+      first.showActive(activeState());
+      second.showActive(activeState());
+      vi.advanceTimersByTime(30);
+
+      expect(document.querySelectorAll("#blinkbreak-break-surface")).toHaveLength(1);
+      expect(vi.getTimerCount()).toBe(1);
+    } finally {
+      first.hide();
+      second.hide();
+    }
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
   it("stops timer and animation work while the page is hidden", () => {
     const surface = new BreakSurface();
     surface.showActive(activeState());

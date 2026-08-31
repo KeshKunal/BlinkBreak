@@ -2,6 +2,7 @@ import { sendRequest } from "../shared/messages";
 import type { AppSnapshot, ThemePreference } from "../shared/types";
 
 const SURFACE_ID = "blinkbreak-break-surface";
+const REPLACE_SURFACE_EVENT = "blinkbreak:replace-surface";
 
 function element<K extends keyof HTMLElementTagNameMap>(
   tag: K,
@@ -38,6 +39,7 @@ export class BreakSurface {
   private completed = false;
   private view: "prompt" | "active" | "complete" | null = null;
   private activeBreakStartedAt: number | null = null;
+  private readonly onReplacement = () => this.hide();
 
   showPrompt(state: AppSnapshot): void {
     if (this.host && this.view === "prompt") {
@@ -86,10 +88,14 @@ export class BreakSurface {
   }
 
   private mount(): void {
+    const existing = document.getElementById(SURFACE_ID);
+    existing?.dispatchEvent(new Event(REPLACE_SURFACE_EVENT));
+    existing?.remove();
     this.previousFocus = document.activeElement;
     this.host = element("div");
     this.host.id = SURFACE_ID;
     this.host.style.cssText = "all:initial;position:fixed;inset:0;z-index:2147483647;display:block;";
+    this.host.addEventListener(REPLACE_SURFACE_EVENT, this.onReplacement, { once: true });
     this.root = this.host.attachShadow({ mode: "closed" });
     const style = element("style");
     style.textContent = SURFACE_STYLES;

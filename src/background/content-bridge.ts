@@ -38,12 +38,13 @@ export class ContentBridge {
     return null;
   }
 
-  async showOnActiveTab(state?: AppSnapshot, playSound = false): Promise<void> {
+  async showOnActiveTab(state?: AppSnapshot, playSound = false): Promise<boolean> {
     const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
-    if (tab?.id !== undefined) await this.showOnTab(tab.id, state, playSound);
+    if (tab?.id === undefined) return false;
+    return this.showOnTab(tab.id, state, playSound);
   }
 
-  async showOnTab(tabId: number, state?: AppSnapshot, playSound = false): Promise<void> {
+  async showOnTab(tabId: number, state?: AppSnapshot, playSound = false): Promise<boolean> {
     const current = state ?? (await loadAppSnapshot());
     let command: ContentCommand = { type: "HIDE_BREAK_UI" };
     if (current.timer.status === "prompt_ready") {
@@ -53,8 +54,10 @@ export class ContentBridge {
     }
     try {
       await chrome.tabs.sendMessage(tabId, command);
+      return true;
     } catch {
       // Browser-owned and extension-store pages intentionally reject content scripts.
+      return false;
     }
   }
 

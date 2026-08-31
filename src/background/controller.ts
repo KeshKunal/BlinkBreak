@@ -107,6 +107,15 @@ export class BlinkBreakController {
         return { ok: true, state };
       }
 
+      case "GET_POPUP_STATE": {
+        const state = await loadAppSnapshot();
+        const pageBreakSurfaceShown =
+          state.timer.status === "break_active"
+            ? await this.content.showOnActiveTab(state)
+            : false;
+        return { ok: true, state, pageBreakSurfaceShown };
+      }
+
       case "CONTENT_READY": {
         if (sender.tab?.id === undefined) {
           return { ok: false, error: "Content context rejected" };
@@ -199,8 +208,10 @@ export class BlinkBreakController {
         state.timer = transitionTimer(state.timer, { type: "START_BREAK" }, state.settings);
         await saveAppSnapshot(state);
         await this.syncRuntime(state);
-        await this.content.showOnActiveTab(state, sender.tab?.id === undefined);
-        return { ok: true, state };
+        const pageBreakSurfaceShown = sender.tab?.id === undefined
+          ? await this.content.showOnActiveTab(state, true)
+          : await this.content.showOnTab(sender.tab.id, state);
+        return { ok: true, state, pageBreakSurfaceShown };
       }
 
       case "DEFER_BREAK":
