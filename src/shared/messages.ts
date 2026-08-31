@@ -31,6 +31,7 @@ export function isActivitySnapshot(value: unknown): value is ActivitySnapshot {
   if (!isRecord(value)) return false;
   const numeric = [
     "capturedAt",
+    "pageLoadedAt",
     "lastInteractionAt",
     "lastKeyboardAt",
     "lastPointerAt",

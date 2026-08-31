@@ -28,6 +28,7 @@ export function assessInterruption(
   const reasons: string[] = [];
   const keyboardAge = Math.max(0, now - snapshot.lastKeyboardAt);
   const interactionAge = Math.max(0, now - snapshot.lastInteractionAt);
+  const pageAge = Math.max(0, now - snapshot.pageLoadedAt);
   const clickAge = Math.max(0, now - snapshot.lastClickAt);
   const scrollAge = Math.max(0, now - snapshot.lastScrollAt);
 
@@ -46,6 +47,11 @@ export function assessInterruption(
   if (!snapshot.windowFocused) {
     score -= 24;
     reasons.push("Window is not focused");
+  }
+
+  if (pageAge <= 5_000) {
+    score += 16;
+    reasons.push("Page just changed");
   }
 
   if (keyboardAge <= 4_000) {

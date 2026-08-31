@@ -57,6 +57,7 @@ export class ActivityTracker {
     this.prune(now);
     return {
       capturedAt: now,
+      pageLoadedAt: this.startedAt,
       lastInteractionAt: this.lastInteractionAt,
       lastKeyboardAt: this.lastKeyboardAt,
       lastPointerAt: this.lastPointerAt,

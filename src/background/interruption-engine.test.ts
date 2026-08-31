@@ -7,6 +7,7 @@ const now = 1_800_000_000_000;
 function snapshot(overrides: Partial<ActivitySnapshot> = {}): ActivitySnapshot {
   return {
     capturedAt: now,
+    pageLoadedAt: now - 60_000,
     lastInteractionAt: now,
     lastKeyboardAt: 0,
     lastPointerAt: 0,
@@ -63,6 +64,16 @@ describe("interruption engine", () => {
     );
     expect(result.risk).toBe("low");
     expect(result.reasons).toContain("Natural pause detected");
+  });
+
+  it("does not prompt in the first moments after navigation", () => {
+    const result = assessInterruption(
+      snapshot({ pageLoadedAt: now - 1_000, lastInteractionAt: now - 1_000 }),
+      "balanced",
+      now,
+    );
+    expect(result.risk).toBe("medium");
+    expect(result.reasons).toContain("Page just changed");
   });
 
   it("transitions from high to low when the user pauses", () => {

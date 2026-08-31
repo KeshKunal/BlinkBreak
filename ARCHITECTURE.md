@@ -65,6 +65,7 @@ Positive risk weights include:
 - very recent or sustained keyboard activity;
 - dense interaction within 30 seconds;
 - recent clicks/scrolling;
+- a page that changed only moments ago;
 - fullscreen state;
 - playing HTML media.
 

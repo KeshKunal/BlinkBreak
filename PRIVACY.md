@@ -18,6 +18,7 @@ This data stays inside the browser profile and is used only to operate the exten
 When smart timing is enabled, the content script keeps short-lived in-memory signals:
 
 - last keyboard, pointer, click, scroll, and general interaction timestamps;
+- the current page-load timestamp;
 - counts of keyboard and general interactions in the previous 30 seconds;
 - whether the page is visible, the window is focused, fullscreen is active, or HTML media is playing.
 

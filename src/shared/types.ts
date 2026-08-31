@@ -50,6 +50,7 @@ export interface DailyStats {
 
 export interface ActivitySnapshot {
   capturedAt: number;
+  pageLoadedAt: number;
   lastInteractionAt: number;
   lastKeyboardAt: number;
   lastPointerAt: number;

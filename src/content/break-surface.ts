@@ -279,6 +279,7 @@ export class BreakSurface {
       gain.gain.exponentialRampToValueAtTime(0.055, context.currentTime + 0.04);
       gain.gain.exponentialRampToValueAtTime(0.0001, context.currentTime + 0.8);
       oscillator.connect(gain).connect(context.destination);
+      oscillator.addEventListener("ended", () => void context.close());
       oscillator.start();
       oscillator.stop(context.currentTime + 0.82);
     } catch {
