@@ -18,6 +18,7 @@ import { assessInterruption } from "./interruption-engine";
 import { recoverTimer, transitionTimer } from "./timer-engine";
 
 const SCHEDULER_ALARM = "blinkbreak-scheduler";
+const CONTENT_SCRIPT_ID = "blinkbreak-content";
 const ACTIVITY_FRESHNESS_MS = 90_000;
 
 export class BlinkBreakController {
@@ -58,6 +59,9 @@ export class BlinkBreakController {
       void this.enqueue(() => this.restoreSurfaceToActiveTab());
     });
 
+    chrome.permissions.onAdded.addListener(() => void this.enqueue(() => this.syncContentRegistration()));
+    chrome.permissions.onRemoved.addListener(() => void this.enqueue(() => this.syncContentRegistration()));
+
     void this.enqueue(() => this.initialize());
   }
 
@@ -71,6 +75,7 @@ export class BlinkBreakController {
   }
 
   private async initialize(): Promise<void> {
+    await this.syncContentRegistration();
     const state = await loadAppSnapshot();
     state.timer = recoverTimer(state.timer, state.settings);
     await saveAppSnapshot(state);
@@ -124,9 +129,16 @@ export class BlinkBreakController {
         await saveSettings(state.settings);
         await saveTimer(state.timer);
         await this.schedule(state);
+        await this.broadcastTracking(state.settings.smartInterruptionEnabled);
         if (!state.settings.smartInterruptionEnabled && state.timer.status === "waiting_for_pause") {
           await this.evaluateDueBreak(null, state);
         }
+        return { ok: true, state };
+      }
+
+      case "SYNC_SITE_ACCESS": {
+        await this.syncContentRegistration();
+        const state = await loadAppSnapshot();
         return { ok: true, state };
       }
 
@@ -359,5 +371,47 @@ export class BlinkBreakController {
     } catch {
       // No surface exists on restricted pages.
     }
+  }
+
+  private async syncContentRegistration(): Promise<void> {
+    const hasAccess = await chrome.permissions.contains({
+      permissions: ["scripting"],
+      origins: ["http://*/*", "https://*/*"],
+    });
+    const registered = await chrome.scripting
+      ?.getRegisteredContentScripts({ ids: [CONTENT_SCRIPT_ID] })
+      .catch(() => []);
+    const exists = Boolean(registered?.length);
+
+    if (hasAccess && !exists) {
+      await chrome.scripting.registerContentScripts([
+        {
+          id: CONTENT_SCRIPT_ID,
+          matches: ["http://*/*", "https://*/*"],
+          js: ["content.js"],
+          runAt: "document_start",
+          persistAcrossSessions: true,
+        },
+      ]);
+    } else if (!hasAccess && exists) {
+      await chrome.scripting.unregisterContentScripts({ ids: [CONTENT_SCRIPT_ID] });
+    }
+  }
+
+  private async broadcastTracking(enabled: boolean): Promise<void> {
+    const tabs = await chrome.tabs.query({});
+    await Promise.all(
+      tabs.map(async (tab) => {
+        if (tab.id === undefined) return;
+        try {
+          await chrome.tabs.sendMessage(tab.id, {
+            type: "SET_ACTIVITY_TRACKING",
+            enabled,
+          } satisfies ContentCommand);
+        } catch {
+          // The tab either lacks optional site access or has not loaded the script yet.
+        }
+      }),
+    );
   }
 }

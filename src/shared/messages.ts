@@ -3,6 +3,7 @@ import type { ActivitySnapshot, AppSnapshot, UserSettings } from "./types";
 export type ExtensionRequest =
   | { type: "GET_APP_STATE" }
   | { type: "UPDATE_SETTINGS"; patch: Partial<UserSettings> }
+  | { type: "SYNC_SITE_ACCESS" }
   | { type: "PAUSE_TIMER" }
   | { type: "RESUME_TIMER" }
   | { type: "TAKE_BREAK_NOW" }
@@ -19,6 +20,7 @@ export type BackgroundResponse =
 export type ContentCommand =
   | { type: "SHOW_BREAK_PROMPT"; state: AppSnapshot }
   | { type: "SHOW_ACTIVE_BREAK"; state: AppSnapshot }
+  | { type: "SET_ACTIVITY_TRACKING"; enabled: boolean }
   | { type: "HIDE_BREAK_UI" };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -53,6 +55,7 @@ export function isExtensionRequest(value: unknown): value is ExtensionRequest {
     case "TAKE_BREAK_NOW":
     case "START_BREAK":
     case "GET_ACTIVITY_SNAPSHOT":
+    case "SYNC_SITE_ACCESS":
       return true;
     case "UPDATE_SETTINGS":
       return isRecord(value.patch);

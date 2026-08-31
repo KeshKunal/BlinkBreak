@@ -33,6 +33,23 @@ export class ActivityTracker {
     this.queueIdleSignal();
   }
 
+  stop(): void {
+    document.removeEventListener("keydown", this.onKeyboard, true);
+    document.removeEventListener("pointermove", this.onPointer, true);
+    document.removeEventListener("pointerdown", this.onClick, true);
+    document.removeEventListener("scroll", this.onScroll, true);
+    document.removeEventListener("visibilitychange", this.onContextChange);
+    document.removeEventListener("fullscreenchange", this.onContextChange);
+    window.removeEventListener("focus", this.onContextChange);
+    window.removeEventListener("blur", this.onContextChange);
+    document.removeEventListener("playing", this.onMediaPlaying, true);
+    document.removeEventListener("pause", this.onMediaStopped, true);
+    document.removeEventListener("ended", this.onMediaStopped, true);
+    if (this.idleSignal !== undefined) window.clearTimeout(this.idleSignal);
+    this.idleSignal = undefined;
+    this.playingMedia.clear();
+  }
+
   snapshot(now = Date.now()): ActivitySnapshot {
     this.prune(now);
     return {

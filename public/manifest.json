@@ -6,7 +6,8 @@
   "description": "Eye breaks that wait for a natural pause.",
   "minimum_chrome_version": "120",
   "permissions": ["alarms", "storage"],
-  "host_permissions": ["<all_urls>"],
+  "optional_permissions": ["scripting"],
+  "optional_host_permissions": ["http://*/*", "https://*/*"],
   "background": {
     "service_worker": "background.js",
     "type": "module"
@@ -27,13 +28,5 @@
     "48": "icons/icon-48.png",
     "128": "icons/icon-128.png"
   },
-  "options_page": "options.html",
-  "content_scripts": [
-    {
-      "matches": ["<all_urls>"],
-      "js": ["content.js"],
-      "run_at": "document_start",
-      "all_frames": false
-    }
-  ]
+  "options_page": "options.html"
 }
