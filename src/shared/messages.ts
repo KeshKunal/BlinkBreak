@@ -20,6 +20,7 @@ export type BackgroundResponse =
   | { ok: false; error: string };
 
 export type ContentCommand =
+  | { type: "PING_CONTENT" }
   | { type: "SHOW_BREAK_PROMPT"; state: AppSnapshot }
   | { type: "SHOW_ACTIVE_BREAK"; state: AppSnapshot; playSound?: boolean }
   | { type: "SET_ACTIVITY_TRACKING"; enabled: boolean }
@@ -81,6 +82,14 @@ export function isExtensionRequest(value: unknown): value is ExtensionRequest {
   }
 }
 
-export function sendRequest(message: ExtensionRequest): Promise<BackgroundResponse> {
-  return chrome.runtime.sendMessage(message) as Promise<BackgroundResponse>;
+export function hasExtensionContext(): boolean {
+  try {
+    return typeof chrome !== "undefined" && Boolean(chrome.runtime?.id);
+  } catch {
+    return false;
+  }
+}
+
+export async function sendRequest(message: ExtensionRequest): Promise<BackgroundResponse> {
+  return (await chrome.runtime.sendMessage(message)) as BackgroundResponse;
 }

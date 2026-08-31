@@ -65,7 +65,7 @@ export class BlinkBreakController {
     chrome.tabs.onRemoved.addListener((tabId) => this.content.forgetTab(tabId));
 
     chrome.permissions.onAdded.addListener(() =>
-      void this.enqueue(() => this.content.syncRegistration(true)),
+      void this.enqueue(() => this.content.syncRegistration()),
     );
     chrome.permissions.onRemoved.addListener(() =>
       void this.enqueue(() => this.content.syncRegistration()),
@@ -157,7 +157,7 @@ export class BlinkBreakController {
       }
 
       case "SYNC_SITE_ACCESS": {
-        await this.content.syncRegistration(true);
+        await this.content.syncRegistration();
         const state = await loadAppSnapshot();
         return { ok: true, state };
       }

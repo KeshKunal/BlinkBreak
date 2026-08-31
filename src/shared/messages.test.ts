@@ -1,5 +1,7 @@
-import { describe, expect, it } from "vitest";
-import { isExtensionRequest } from "./messages";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { hasExtensionContext, isExtensionRequest, sendRequest } from "./messages";
+
+afterEach(() => vi.unstubAllGlobals());
 
 describe("extension message validation", () => {
   it("accepts explicit known commands", () => {
@@ -15,5 +17,21 @@ describe("extension message validation", () => {
     expect(isExtensionRequest({ type: "DELETE_EVERYTHING" })).toBe(false);
     expect(isExtensionRequest({ type: "DEFER_BREAK", minutes: 999 })).toBe(false);
     expect(isExtensionRequest({ type: "COMPLETE_BREAK", elapsedSeconds: Number.NaN })).toBe(false);
+  });
+
+  it("turns synchronous invalidated-context errors into rejected promises", async () => {
+    vi.stubGlobal("chrome", {
+      runtime: {
+        id: undefined,
+        sendMessage: () => {
+          throw new Error("Extension context invalidated");
+        },
+      },
+    });
+
+    expect(hasExtensionContext()).toBe(false);
+    await expect(sendRequest({ type: "GET_APP_STATE" })).rejects.toThrow(
+      "Extension context invalidated",
+    );
   });
 });

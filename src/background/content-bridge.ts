@@ -87,6 +87,26 @@ export class ContentBridge {
   async ensureOnTab(tabId: number): Promise<void> {
     if (!this.hasSiteAccess || this.knownTabs.has(tabId)) return;
     try {
+      const response = await chrome.tabs.sendMessage(
+        tabId,
+        { type: "PING_CONTENT" } satisfies ContentCommand,
+      );
+      if (response?.ready === true) {
+        this.knownTabs.add(tabId);
+        return;
+      }
+    } catch {
+      // Missing or invalidated content contexts are replaced below.
+    }
+    try {
+      await chrome.tabs.sendMessage(tabId, {
+        type: "SET_ACTIVITY_TRACKING",
+        enabled: false,
+      } satisfies ContentCommand);
+    } catch {
+      // An invalidated legacy runtime may no longer accept cleanup messages.
+    }
+    try {
       await chrome.scripting.executeScript({
         target: { tabId },
         files: ["content.js"],
@@ -97,7 +117,7 @@ export class ContentBridge {
     }
   }
 
-  async syncRegistration(injectOpenTabs = false): Promise<void> {
+  async syncRegistration(): Promise<void> {
     const hasAccess = await chrome.permissions.contains({
       permissions: ["scripting"],
       origins: ["http://*/*", "https://*/*"],
@@ -124,7 +144,7 @@ export class ContentBridge {
 
     if (!hasAccess) {
       this.knownTabs.clear();
-    } else if (injectOpenTabs || !exists) {
+    } else {
       await this.injectIntoActiveTab();
     }
   }

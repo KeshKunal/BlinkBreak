@@ -10,7 +10,7 @@ beforeEach(() => {
   vi.useFakeTimers();
   vi.setSystemTime(now);
   sendMessage.mockClear();
-  vi.stubGlobal("chrome", { runtime: { sendMessage } });
+  vi.stubGlobal("chrome", { runtime: { id: "test-extension", sendMessage } });
   Object.defineProperty(document, "visibilityState", {
     configurable: true,
     value: "visible",

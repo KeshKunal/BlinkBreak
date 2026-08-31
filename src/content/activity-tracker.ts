@@ -1,3 +1,4 @@
+import { hasExtensionContext, sendRequest } from "../shared/messages";
 import type { ActivitySnapshot } from "../shared/types";
 
 type ActivityKind = "keyboard" | "pointer" | "scroll" | "click";
@@ -119,6 +120,10 @@ export class ActivityTracker {
   }
 
   private record(kind: ActivityKind, now = Date.now()): void {
+    if (!hasExtensionContext()) {
+      this.stop();
+      return;
+    }
     this.lastInteractionAt = now;
     const cutoff = now - 30_000;
     this.interactionTimes.push(now, cutoff);
@@ -155,9 +160,13 @@ export class ActivityTracker {
     ) {
       return;
     }
-    void chrome.runtime
-      .sendMessage({ type: "ACTIVITY_UPDATE", snapshot: this.snapshot(now) })
-      .catch(() => undefined);
+    if (!hasExtensionContext()) {
+      this.stop();
+      return;
+    }
+    void sendRequest({ type: "ACTIVITY_UPDATE", snapshot: this.snapshot(now) }).catch(() => {
+      if (!hasExtensionContext()) this.stop();
+    });
   }
 
   private onKeyboard = (): void => this.record("keyboard");
