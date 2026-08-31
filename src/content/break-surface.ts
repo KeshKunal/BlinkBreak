@@ -34,18 +34,28 @@ export class BreakSurface {
   private keyHandler: ((event: KeyboardEvent) => void) | null = null;
   private previousFocus: Element | null = null;
   private completed = false;
+  private view: "prompt" | "active" | "complete" | null = null;
+  private activeBreakStartedAt: number | null = null;
 
   showPrompt(state: AppSnapshot): void {
     this.state = state;
+    if (this.host && this.view === "prompt") return;
     this.completed = false;
-    this.mount();
+    if (!this.host) this.mount();
+    this.view = "prompt";
     this.renderPrompt();
   }
 
   showActive(state: AppSnapshot, playSound = false): void {
+    const startedAt = state.timer.activeBreakStartedAt;
+    const alreadyShowing =
+      this.host !== null && this.view === "active" && this.activeBreakStartedAt === startedAt;
     this.state = state;
+    if (alreadyShowing) return;
     this.completed = false;
-    this.mount();
+    if (!this.host) this.mount();
+    this.view = "active";
+    this.activeBreakStartedAt = startedAt;
     if (playSound) this.playSoftChime();
     this.renderActive();
   }
@@ -58,6 +68,8 @@ export class BreakSurface {
     this.host?.remove();
     this.host = null;
     this.root = null;
+    this.view = null;
+    this.activeBreakStartedAt = null;
     if (this.previousFocus instanceof HTMLElement) this.previousFocus.focus({ preventScroll: true });
     this.previousFocus = null;
   }
@@ -93,7 +105,11 @@ export class BreakSurface {
     const top = element("div", "topbar");
     const brand = element("div", "brand");
     brand.append(element("span", "brand-eye"), element("span", "brand-text", "BlinkBreak"));
-    const quiet = element("span", "quiet-label", "A quiet moment");
+    const quiet = element(
+      "span",
+      "quiet-label",
+      this.view === "active" ? "Guided reset" : this.view === "complete" ? "All set" : "A quiet moment",
+    );
     top.append(brand, quiet);
     const content = element("div", "content");
     panel.append(top, content);
@@ -174,7 +190,13 @@ export class BreakSurface {
 
     const breathing = element("div", "breathing");
     breathing.setAttribute("aria-hidden", "true");
-    breathing.append(element("span", "breathing-orbit"), element("span", "breathing-core"));
+    const eyeTilt = element("span", "eye-tilt");
+    const animatedEye = element("span", "animated-eye");
+    const pupil = element("span", "eye-pupil");
+    pupil.append(element("span", "eye-glint"));
+    animatedEye.append(pupil);
+    eyeTilt.append(animatedEye);
+    breathing.append(element("span", "breathing-orbit"), element("span", "breathing-orbit inner"), eyeTilt);
     const eyebrow = element("p", "eyebrow", "LOOK BEYOND THE SCREEN");
     const title = element("h1", "title", "Let your gaze rest.");
     title.id = "bb-title";
@@ -196,14 +218,17 @@ export class BreakSurface {
     const update = () => {
       const elapsed = Math.max(0, (Date.now() - startedAt) / 1_000);
       const remaining = Math.max(0, duration - elapsed);
-      timer.textContent = formatTime(remaining);
+      const nextTime = formatTime(remaining);
+      if (timer.textContent !== nextTime) timer.textContent = nextTime;
+      let nextGuide: string;
       if (elapsed < duration * 0.3) {
-        guide.textContent = "Focus on something farther away.";
+        nextGuide = "Focus on something farther away.";
       } else if (elapsed < duration * 0.65) {
-        guide.textContent = "Breathe gently. Let your eyes relax.";
+        nextGuide = "Breathe gently. Let your eyes relax.";
       } else {
-        guide.textContent = "Blink slowly, five times.";
+        nextGuide = "Blink slowly, five times.";
       }
+      if (guide.textContent !== nextGuide) guide.textContent = nextGuide;
       const completedBlinks = Math.min(5, Math.floor((elapsed / duration) * 6));
       [...blinkGuide.children].forEach((mark, index) => {
         mark.classList.toggle("done", index < completedBlinks);
@@ -219,6 +244,8 @@ export class BreakSurface {
     if (!this.root || !this.state) return;
     if (this.tick !== undefined) window.clearInterval(this.tick);
     this.tick = undefined;
+    this.view = "complete";
+    this.activeBreakStartedAt = null;
     this.root.querySelector(".backdrop")?.remove();
     const { content } = this.shell();
     const success = element("div", "success-mark");
@@ -244,8 +271,7 @@ export class BreakSurface {
     this.playSoftChime();
     const response = await sendRequest({ type: "START_BREAK" }).catch(() => null);
     if (response?.ok && response.state) {
-      this.state = response.state;
-      this.renderActive();
+      this.showActive(response.state);
     }
   }
 
@@ -322,19 +348,19 @@ const SURFACE_STYLES = `
     --bg: #fbfaf6; --surface: #fff; --text: #1d2521; --muted: #68736d;
     --soft: #e4efeb; --border: #dce1dc; --accent: #1d6b5b; --accent-hover: #15584b;
     position: fixed; inset: 0; display: grid; place-items: center; padding: 24px;
-    color: var(--text); background: rgb(21 31 26 / 30%); backdrop-filter: blur(5px) saturate(.88);
+    isolation: isolate; color: var(--text); background: radial-gradient(circle at 50% 46%, rgb(29 107 91 / 11%), transparent 45%), rgb(21 31 26 / 42%);
     font-family: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
     animation: bb-fade-in 240ms cubic-bezier(.22,1,.36,1) both;
   }
   .backdrop.dark {
     --bg: #141815; --surface: #1b211d; --text: #eff3ef; --muted: #a4aea8;
     --soft: #213b33; --border: #303a34; --accent: #70b7a4; --accent-hover: #86c4b4;
-    background: rgb(5 8 6 / 58%);
+    background: radial-gradient(circle at 50% 46%, rgb(112 183 164 / 8%), transparent 45%), rgb(5 8 6 / 64%);
   }
   .panel {
     width: min(440px, calc(100vw - 32px)); overflow: hidden; border: 1px solid var(--border);
     border-radius: 28px; background: var(--surface); box-shadow: 0 24px 80px rgb(12 22 16 / 22%), 0 3px 12px rgb(12 22 16 / 8%);
-    animation: bb-rise 440ms cubic-bezier(.22,1,.36,1) both;
+    contain: layout paint style; transform: translateZ(0); animation: bb-rise 440ms cubic-bezier(.22,1,.36,1) both;
   }
   .topbar { display: flex; align-items: center; justify-content: space-between; padding: 20px 22px 0; }
   .brand { display: inline-flex; align-items: center; gap: 9px; font-size: 13px; font-weight: 700; letter-spacing: -.015em; }
@@ -366,11 +392,15 @@ const SURFACE_STYLES = `
   .choice { min-height: 37px; padding: 0 8px; font-size: 11px; }
   .choice-wide { grid-column: 1 / -1; }
   .active-content { padding-top: 36px; }
-  .breathing { position: relative; display: grid; width: 148px; height: 148px; margin: 0 0 28px; place-items: center; }
+  .breathing { position: relative; display: grid; width: 164px; height: 164px; margin: 0 0 28px; place-items: center; }
   .breathing-orbit { position: absolute; inset: 0; border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent); border-radius: 50%; animation: bb-breathe-orbit 6s ease-in-out infinite; }
-  .breathing-core { width: 84px; height: 84px; border-radius: 50%; background: radial-gradient(circle at 38% 32%, color-mix(in srgb, var(--accent) 52%, white), var(--accent)); box-shadow: 0 16px 36px color-mix(in srgb, var(--accent) 19%, transparent); animation: bb-breathe-core 6s ease-in-out infinite; }
+  .breathing-orbit.inner { inset: 22px; border-style: dashed; opacity: .48; animation-delay: .35s; animation-direction: reverse; }
+  .eye-tilt { display: grid; width: 106px; height: 66px; place-items: center; transform: rotate(45deg); filter: drop-shadow(0 14px 18px color-mix(in srgb, var(--accent) 18%, transparent)); }
+  .animated-eye { position: relative; display: block; width: 94px; height: 56px; overflow: hidden; border: 2px solid var(--accent); border-radius: 100% 0 100% 0; background: var(--surface); transform-origin: 50% 50%; animation: bb-eye-blink 5.8s cubic-bezier(.4,0,.2,1) infinite; }
+  .eye-pupil { position: absolute; display: grid; width: 29px; height: 29px; left: 32px; top: 13px; place-items: center; border-radius: 50%; background: var(--accent); animation: bb-eye-gaze 8.5s cubic-bezier(.45,.05,.3,1) infinite; }
+  .eye-glint { width: 7px; height: 7px; margin: -9px 0 0 -8px; border-radius: 50%; background: white; opacity: .88; }
   .guide { min-height: 24px; }
-  .timer { margin: 22px 0 14px; font-variant-numeric: tabular-nums; color: var(--text); font-size: 43px; font-weight: 560; letter-spacing: -.055em; }
+  .timer { min-width: 116px; margin: 22px 0 14px; contain: content; transform: translateZ(0); font-variant-numeric: tabular-nums; color: var(--text); font-size: 43px; font-weight: 560; letter-spacing: -.055em; }
   .blink-guide { display: flex; height: 18px; align-items: center; gap: 8px; margin-bottom: 18px; }
   .blink-mark { display: block; width: 16px; height: 3px; border-radius: 999px; background: var(--border); transition: background 280ms ease, transform 280ms ease; }
   .blink-mark.done { background: var(--accent); transform: scaleX(.75); }
@@ -383,8 +413,9 @@ const SURFACE_STYLES = `
   @keyframes bb-rise { from { opacity: 0; transform: translateY(10px) scale(.985); } }
   @keyframes bb-reveal { from { opacity: 0; transform: translateY(-3px); } }
   @keyframes bb-breathe { 0%,100% { transform: scale(.9); opacity: .72; } 50% { transform: scale(1); opacity: 1; } }
-  @keyframes bb-breathe-core { 0%,100% { transform: scale(.82); } 50% { transform: scale(1); } }
   @keyframes bb-breathe-orbit { 0%,100% { transform: scale(.82); opacity: .35; } 50% { transform: scale(1); opacity: 1; } }
+  @keyframes bb-eye-gaze { 0%, 14%, 100% { transform: translate(0, 0); } 29%, 42% { transform: translate(10px, -3px); } 57%, 70% { transform: translate(-9px, 5px); } 82%, 92% { transform: translate(3px, 3px); } }
+  @keyframes bb-eye-blink { 0%, 40%, 44%, 72%, 76%, 100% { transform: scaleY(1); } 42%, 74% { transform: scaleY(.08); } }
   @keyframes bb-success { from { opacity: 0; transform: scale(.75); } }
   [data-motion="reduced"] *, [data-motion="reduced"] *::before, [data-motion="reduced"] *::after { animation: none !important; transition-duration: .01ms !important; }
   @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition-duration: .01ms !important; } }

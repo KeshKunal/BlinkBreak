@@ -7,7 +7,7 @@ BlinkBreak is a privacy-first Chrome extension for eye breaks that waits for a n
 ## Why it feels different
 
 - **Adaptive timing:** recent interaction, focus, fullscreen, and media signals feed an interpretable local risk score.
-- **Calm break experience:** a restrained prompt, breathing visual, blink guidance, and an always-available exit.
+- **Calm break experience:** a restrained prompt, gently moving and blinking eye, blink guidance, and an always-available exit.
 - **Reliable scheduling:** persisted timestamps plus Chrome alarms survive service-worker suspension, sleep, restarts, and extension reloads.
 - **No surveillance:** no typed text, page content, URLs, screenshots, browsing history, accounts, analytics, or backend.
 - **User-controlled access:** page access is optional and requested only after the product explains why it helps.

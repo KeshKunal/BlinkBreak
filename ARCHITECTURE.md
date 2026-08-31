@@ -101,3 +101,5 @@ All reads pass through sanitizers. A malformed field falls back or clamps indepe
 - Activity updates are sent at most every ten seconds, plus context and quiet-state changes.
 - The worker serializes mutations through one promise queue to avoid alarm/message races.
 - There is no continuous DOM scan, background busy loop, network request, or telemetry client.
+- Repeated active-break messages are idempotent, so activity updates cannot remount or flash the overlay.
+- Eye, pupil, and breathing motion use transform-only animations and stop under reduced-motion preferences.

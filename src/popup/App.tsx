@@ -274,7 +274,15 @@ function PopupBreak({ state, now, onState }: { state: AppSnapshot; now: number; 
   return (
     <main className="popup popup-break">
       <header className="break-header"><Brand /><span>Let the screen wait</span></header>
-      <div className="popup-breathing" aria-hidden="true"><span /><i /></div>
+      <div className="popup-breathing" aria-hidden="true">
+        <span className="popup-eye-orbit" />
+        <span className="popup-eye-orbit popup-eye-orbit-inner" />
+        <span className="popup-eye-tilt">
+          <span className="popup-animated-eye">
+            <span className="popup-eye-pupil"><span className="popup-eye-glint" /></span>
+          </span>
+        </span>
+      </div>
       <p className="overline">LOOK BEYOND THE SCREEN</p>
       <h1>Let your gaze rest.</h1>
       <p className="break-guide" aria-live="polite">{phase}</p>
