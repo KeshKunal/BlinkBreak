@@ -14,7 +14,7 @@ html { scroll-behavior: smooth; }
   flex-direction: column;
   padding: 30px 24px 24px;
   border-right: 1px solid var(--border);
-  background: color-mix(in srgb, var(--surface) 88%, transparent);
+  background: #0E161D;
 }
 
 .settings-sidebar nav {
@@ -26,14 +26,14 @@ html { scroll-behavior: smooth; }
 
 .settings-sidebar nav a {
   display: flex;
-  min-height: 41px;
+  min-height: 40px;
   align-items: center;
   gap: 11px;
   padding: 0 12px;
-  border-radius: 11px;
+  border-radius: var(--radius-sm);
   color: var(--text-secondary);
   font-size: 12px;
-  font-weight: 580;
+  font-weight: 560;
   text-decoration: none;
   transition: background var(--duration-fast) ease, color var(--duration-fast) ease;
 }
@@ -51,15 +51,15 @@ html { scroll-behavior: smooth; }
   gap: 10px;
   margin-top: auto;
   padding: 14px;
-  border: 1px solid color-mix(in srgb, var(--accent) 15%, var(--border));
+  border: 1px solid var(--border);
   border-radius: var(--radius-md);
-  color: var(--accent-ink);
-  background: var(--accent-soft);
+  color: var(--text-secondary);
+  background: var(--surface-soft);
 }
 
-.sidebar-trust > svg { width: 17px; height: 17px; flex: 0 0 auto; }
+.sidebar-trust > svg { width: 17px; height: 17px; flex: 0 0 auto; color: var(--accent); }
 .sidebar-trust p { display: flex; flex-direction: column; gap: 4px; margin: 0; }
-.sidebar-trust strong { font-size: 10.5px; }
+.sidebar-trust strong { font-size: 10.5px; color: var(--text); }
 .sidebar-trust span { color: var(--text-secondary); font-size: 9px; line-height: 1.45; }
 
 .settings-main {
@@ -80,8 +80,9 @@ html { scroll-behavior: smooth; }
   margin: 0 0 9px;
   color: var(--accent);
   font-size: 10px;
-  font-weight: 760;
-  letter-spacing: 0.13em;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  opacity: 0.8;
 }
 
 .settings-header h1 {
@@ -130,13 +131,14 @@ html { scroll-behavior: smooth; }
 
 .section-icon {
   display: grid;
-  width: 40px;
-  height: 40px;
+  width: 38px;
+  height: 38px;
   flex: 0 0 auto;
   place-items: center;
-  border-radius: 12px;
-  color: var(--accent-ink);
+  border-radius: var(--radius-sm);
+  color: var(--accent);
   background: var(--accent-soft);
+  border: 1px solid var(--border);
 }
 
 .section-icon svg { width: 18px; height: 18px; }
@@ -182,20 +184,20 @@ html { scroll-behavior: smooth; }
   overflow: hidden;
   padding: 3px;
   border: 1px solid var(--border);
-  border-radius: 11px;
+  border-radius: var(--radius-sm);
   background: var(--surface-soft);
 }
 
 .choice-group button {
   min-width: 62px;
-  min-height: 32px;
+  min-height: 30px;
   padding: 0 9px;
   border: 0;
-  border-radius: 8px;
+  border-radius: 6px;
   color: var(--text-secondary);
   background: transparent;
   font-size: 10.5px;
-  font-weight: 620;
+  font-weight: 580;
   cursor: pointer;
   transition: all var(--duration-fast) var(--ease-standard);
 }
@@ -229,8 +231,8 @@ html { scroll-behavior: smooth; }
 
 .toggle {
   position: relative;
-  width: 42px;
-  height: 24px;
+  width: 40px;
+  height: 22px;
   padding: 0;
   border: 1px solid var(--border-strong);
   border-radius: 999px;
@@ -241,24 +243,24 @@ html { scroll-behavior: smooth; }
 
 .toggle span {
   position: absolute;
-  top: 3px;
-  left: 3px;
+  top: 2px;
+  left: 2px;
   width: 16px;
   height: 16px;
   border-radius: 50%;
-  background: var(--surface-raised);
-  box-shadow: 0 1px 4px rgb(12 24 18 / 18%);
-  transition: transform var(--duration) var(--ease-out);
+  background: var(--text-tertiary);
+  box-shadow: 0 1px 3px rgb(0 0 0 / 20%);
+  transition: transform var(--duration) var(--ease-out), background var(--duration) var(--ease-standard);
 }
 
 .toggle-on { border-color: var(--accent); background: var(--accent); }
-.toggle-on span { transform: translateX(18px); }
+.toggle-on span { background: #fff; transform: translateX(18px); }
 .toggle:disabled { opacity: 0.45; cursor: default; }
 
 .inline-note {
   margin: -1px 18px 0;
   padding: 11px 13px;
-  border-top: 1px solid color-mix(in srgb, var(--warning) 24%, var(--border));
+  border-top: 1px solid color-mix(in srgb, var(--warning) 20%, var(--border));
   color: var(--warning);
   font-size: 10px;
   line-height: 1.45;
@@ -270,10 +272,10 @@ html { scroll-behavior: smooth; }
   grid-template-columns: auto 1fr;
   gap: 22px;
   margin-top: 62px;
-  padding: 30px;
-  border: 1px solid color-mix(in srgb, var(--accent) 20%, var(--border));
+  padding: 28px;
+  border: 1px solid var(--border);
   border-radius: var(--radius-xl);
-  background: var(--accent-soft);
+  background: var(--surface);
 }
 
 .privacy-mark {
@@ -281,9 +283,10 @@ html { scroll-behavior: smooth; }
   width: 54px;
   height: 54px;
   place-items: center;
-  border-radius: 17px;
-  color: var(--accent-ink);
-  background: color-mix(in srgb, var(--surface-raised) 70%, transparent);
+  border-radius: var(--radius-sm);
+  color: var(--accent);
+  background: var(--surface-raised);
+  border: 1px solid var(--border);
 }
 
 .privacy-mark svg { width: 24px; height: 24px; }
@@ -301,16 +304,15 @@ html { scroll-behavior: smooth; }
 
 .stat-card {
   display: flex;
-  min-height: 135px;
+  min-height: 128px;
   flex-direction: column;
-  padding: 16px;
+  padding: 15px;
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
   background: var(--surface);
-  box-shadow: var(--shadow-sm);
 }
 
-.stat-card > span { display: grid; width: 28px; height: 28px; place-items: center; border-radius: 8px; color: var(--accent-ink); background: var(--accent-soft); }
+.stat-card > span { display: grid; width: 26px; height: 26px; place-items: center; border-radius: 7px; color: var(--accent); background: var(--accent-soft); }
 .stat-card svg { width: 14px; height: 14px; }
 .stat-card strong { margin-top: auto; font-size: 25px; font-variant-numeric: tabular-nums; font-weight: 620; letter-spacing: -0.04em; }
 .stat-card small { margin-top: 3px; color: var(--text-tertiary); font-size: 9.5px; }
@@ -327,7 +329,7 @@ html { scroll-behavior: smooth; }
   font-size: 9px;
 }
 
-.settings-footer .brand-mark { width: 24px; height: 24px; border-radius: 7px; }
+.settings-footer .brand-mark { width: 22px; height: 22px; border-radius: 6px; }
 .settings-footer .brand-mark svg { width: 17px; height: 17px; }
 .settings-footer .brand-name { font-size: 11px; }
 
@@ -335,7 +337,7 @@ html { scroll-behavior: smooth; }
 
 @media (max-width: 880px) {
   .settings-layout { display: block; }
-  .settings-sidebar { position: static; height: auto; padding: 20px max(20px, calc((100% - 720px) / 2)); border-right: 0; border-bottom: 1px solid var(--border); }
+  .settings-sidebar { position: static; height: auto; padding: 20px max(20px, calc((100% - 720px) / 2)); border-right: 0; border-bottom: 1px solid var(--border); background: var(--page); }
   .settings-sidebar nav { flex-direction: row; overflow-x: auto; margin-top: 20px; }
   .settings-sidebar nav a { white-space: nowrap; }
   .sidebar-trust { display: none; }

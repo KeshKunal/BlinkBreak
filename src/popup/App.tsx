@@ -1,19 +1,17 @@
-import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+﻿import { useCallback, useEffect, useState, type ReactNode } from "react";
 import {
   Activity,
   ArrowRight,
-  Check,
   ChevronRight,
   CirclePause,
   CirclePlay,
-  Clock3,
   Settings,
   ShieldCheck,
   Sparkles,
 } from "lucide-react";
 import { Brand } from "../shared/components/Brand";
 import { Button } from "../shared/components/Button";
-import { sendRequest, type BackgroundResponse } from "../shared/messages";
+import { sendRequest } from "../shared/messages";
 import { applyAnimationPreference, applyTheme } from "../shared/theme";
 import type { AppSnapshot, TimerState } from "../shared/types";
 import { usePageVisibilityLifecycle } from "../shared/use-page-visibility";
@@ -59,19 +57,13 @@ export function App() {
   const theme = state?.settings.theme;
   const animationPreference = state?.settings.animationPreference;
 
-  const acceptResponse = useCallback((response: BackgroundResponse) => {
-    if (!response.ok || !response.state) return;
-    if (response.state.timer.status === "break_active" && response.pageBreakSurfaceShown) {
-      window.close();
-      return;
-    }
-    setState(response.state);
-    setError(false);
-  }, []);
-
   const refresh = useCallback(async () => {
-    acceptResponse(await sendRequest({ type: "GET_POPUP_STATE" }));
-  }, [acceptResponse]);
+    const response = await sendRequest({ type: "GET_APP_STATE" });
+    if (response.ok && response.state) {
+      setState(response.state);
+      setError(false);
+    }
+  }, []);
 
   useEffect(() => {
     const initial = window.setTimeout(() => void refresh().catch(() => setError(true)), 0);
@@ -103,7 +95,7 @@ export function App() {
     setPending(label);
     try {
       const response = await sendRequest(action);
-      acceptResponse(response);
+      if (response.ok && response.state) setState(response.state);
     } finally {
       setPending(null);
     }
@@ -129,7 +121,9 @@ export function App() {
   }
 
   if (state.timer.status === "break_active") {
-    return <PopupBreak state={state} onState={setState} />;
+    // Break is running in the content-script overlay â€” close popup so it isn't in the way
+    window.close();
+    return null;
   }
 
   const goalProgress = Math.min(1, state.stats.completed / state.settings.dailyGoal);
@@ -175,7 +169,12 @@ export function App() {
           <Button
             variant="ghost"
             disabled={pending !== null}
-            onClick={() => void act("start", { type: "START_BREAK" })}
+            onClick={() => {
+              // Close popup first so lastFocusedWindow resolves to the real tab,
+              // then fire the break â€” background will show the active break overlay directly.
+              window.close();
+              void sendRequest({ type: "TAKE_BREAK_NOW" });
+            }}
           >
             Take a break now
             <ArrowRight />
@@ -209,7 +208,7 @@ export function App() {
           <strong>{state.settings.smartInterruptionEnabled ? "Adaptive timing is on" : "Fixed timing is on"}</strong>
           <small>
             {state.settings.smartInterruptionEnabled
-              ? `${state.settings.breakIntervalMinutes} min rhythm · ${state.settings.sensitivity} pause detection`
+              ? `${state.settings.breakIntervalMinutes} min rhythm Â· ${state.settings.sensitivity} pause detection`
               : `${state.settings.breakIntervalMinutes} min fixed rhythm`}
           </small>
         </span>
@@ -311,54 +310,5 @@ function TimerRing({ progress, paused, children }: { progress: number; paused: b
       </svg>
       <div className="timer-center">{children}</div>
     </div>
-  );
-}
-
-function PopupBreak({ state, onState }: { state: AppSnapshot; onState: (state: AppSnapshot) => void }) {
-  const finishing = useRef(false);
-  const now = useTimestampClock(true);
-  const startedAt = state.timer.activeBreakStartedAt ?? now;
-  const elapsedSeconds = Math.max(0, (now - startedAt) / 1_000);
-  const remaining = Math.max(0, state.settings.breakDurationSeconds - elapsedSeconds);
-  const phase = elapsedSeconds < state.settings.breakDurationSeconds * 0.5
-    ? "Look toward something farther away."
-    : "Blink slowly and let your gaze soften.";
-
-  const finish = useCallback(async () => {
-    if (finishing.current) return;
-    finishing.current = true;
-    const response = await sendRequest({ type: "COMPLETE_BREAK", elapsedSeconds: Math.round(elapsedSeconds) }).catch(() => null);
-    if (response?.ok && response.state) onState(response.state);
-  }, [elapsedSeconds, onState]);
-
-  useEffect(() => {
-    if (remaining <= 0) void finish();
-  }, [finish, remaining]);
-
-  const completedBlinks = Math.min(5, Math.floor((elapsedSeconds / state.settings.breakDurationSeconds) * 6));
-  return (
-    <main className="popup popup-break">
-      <header className="break-header"><Brand /><span>Let the screen wait</span></header>
-      <div className="popup-breathing" aria-hidden="true">
-        <span className="popup-eye-orbit" />
-        <span className="popup-eye-orbit popup-eye-orbit-inner" />
-        <span className="popup-eye-tilt">
-          <span className="popup-animated-eye">
-            <span className="popup-eye-pupil"><span className="popup-eye-glint" /></span>
-          </span>
-        </span>
-      </div>
-      <p className="overline">LOOK BEYOND THE SCREEN</p>
-      <h1>Let your gaze rest.</h1>
-      <p className="break-guide" aria-live="polite">{phase}</p>
-      <strong className="break-countdown" role="timer">{formatCountdown(remaining * 1_000)}</strong>
-      <div className="popup-blinks" aria-label="Blink slowly five times">
-        {[0, 1, 2, 3, 4].map((index) => <span key={index} className={index < completedBlinks ? "done" : ""} />)}
-      </div>
-      <button className="finish-button" type="button" onClick={() => void finish()}>
-        <Check /> Finish early
-      </button>
-      <p className="break-footnote"><Clock3 /> The next break starts only after this one ends.</p>
-    </main>
   );
 }

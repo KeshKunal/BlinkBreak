@@ -161,7 +161,6 @@ export function completeBreakInSnapshot(
         Math.min(state.settings.breakDurationSeconds, Math.max(0, elapsedSeconds)),
       totalCompletedIntervalMs: state.stats.totalCompletedIntervalMs + uninterruptedMs,
       longestUninterruptedMs: Math.max(state.stats.longestUninterruptedMs, uninterruptedMs),
-      focusSessions: state.stats.focusSessions + 1,
     },
   };
 }

@@ -4,28 +4,29 @@
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   --font-display: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  --page: #f5f3ed;
-  --surface: #fbfaf6;
+  /* Light mode — cool neutral baseline */
+  --page: #f0f3f5;
+  --surface: #f7f9fa;
   --surface-raised: #ffffff;
-  --surface-soft: #eef3ef;
-  --text: #1d2521;
-  --text-secondary: #65706a;
-  --text-tertiary: #89918d;
-  --accent: #1d6b5b;
-  --accent-hover: #15584b;
-  --accent-soft: #e1eeea;
-  --accent-ink: #10493e;
-  --success: #4d806b;
-  --warning: #99682f;
-  --border: #dedfd9;
-  --border-strong: #cbd0ca;
-  --focus: #2b8070;
-  --shadow-sm: 0 1px 2px rgb(19 31 25 / 5%), 0 4px 14px rgb(19 31 25 / 4%);
-  --shadow-lg: 0 18px 54px rgb(19 31 25 / 12%), 0 3px 12px rgb(19 31 25 / 6%);
-  --radius-sm: 10px;
-  --radius-md: 15px;
-  --radius-lg: 22px;
-  --radius-xl: 28px;
+  --surface-soft: #e4eaee;
+  --text: #1a2630;
+  --text-secondary: #4a6070;
+  --text-tertiary: #7a9aaa;
+  --accent: #3a8ab8;
+  --accent-hover: #2e77a0;
+  --accent-soft: #dbeef8;
+  --accent-ink: #1a5278;
+  --success: #3a9e9b;
+  --warning: #b8942a;
+  --border: #cdd8e0;
+  --border-strong: #afc0cc;
+  --focus: #7DB7D8;
+  --shadow-sm: 0 1px 2px rgb(11 17 23 / 6%), 0 3px 10px rgb(11 17 23 / 4%);
+  --shadow-lg: 0 16px 48px rgb(11 17 23 / 12%), 0 3px 12px rgb(11 17 23 / 6%);
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --radius-xl: 20px;
   --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
   --ease-standard: cubic-bezier(0.4, 0, 0.2, 1);
   --duration-fast: 140ms;
@@ -36,47 +37,48 @@
 
 :root[data-theme="dark"] {
   color-scheme: dark;
-  --page: #121613;
-  --surface: #171c19;
-  --surface-raised: #1d231f;
-  --surface-soft: #202b26;
-  --text: #eff3ef;
-  --text-secondary: #a4aea8;
-  --text-tertiary: #78837d;
-  --accent: #70b7a4;
-  --accent-hover: #86c4b4;
-  --accent-soft: #213b33;
-  --accent-ink: #bce1d6;
-  --success: #82b7a2;
-  --warning: #d5a766;
-  --border: #2d3530;
-  --border-strong: #3c4741;
-  --focus: #83c6b4;
-  --shadow-sm: 0 1px 2px rgb(0 0 0 / 18%), 0 6px 18px rgb(0 0 0 / 10%);
-  --shadow-lg: 0 20px 60px rgb(0 0 0 / 34%), 0 3px 16px rgb(0 0 0 / 18%);
+  /* ─── Midnight Calm ─────────────────── */
+  --page:           #0B1117;
+  --surface:        #111C23;
+  --surface-raised: #16242C;
+  --surface-soft:   #1C2E38;
+  --text:           #F1F4F3;
+  --text-secondary: #9AAEB8;
+  --text-tertiary:  #5E7A88;
+  --accent:         #7DB7D8;
+  --accent-hover:   #96C6E3;
+  --accent-soft:    #172535;
+  --accent-ink:     #C8E4F4;
+  --success:        #72C7C4;
+  --warning:        #E8D38A;
+  --border:         #26363F;
+  --border-strong:  #344D5A;
+  --focus:          #7DB7D8;
+  --shadow-sm: 0 1px 2px rgb(0 0 0 / 28%), 0 4px 14px rgb(0 0 0 / 14%);
+  --shadow-lg: 0 18px 56px rgb(0 0 0 / 44%), 0 3px 14px rgb(0 0 0 / 22%);
 }
 
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
     color-scheme: dark;
-    --page: #121613;
-    --surface: #171c19;
-    --surface-raised: #1d231f;
-    --surface-soft: #202b26;
-    --text: #eff3ef;
-    --text-secondary: #a4aea8;
-    --text-tertiary: #78837d;
-    --accent: #70b7a4;
-    --accent-hover: #86c4b4;
-    --accent-soft: #213b33;
-    --accent-ink: #bce1d6;
-    --success: #82b7a2;
-    --warning: #d5a766;
-    --border: #2d3530;
-    --border-strong: #3c4741;
-    --focus: #83c6b4;
-    --shadow-sm: 0 1px 2px rgb(0 0 0 / 18%), 0 6px 18px rgb(0 0 0 / 10%);
-    --shadow-lg: 0 20px 60px rgb(0 0 0 / 34%), 0 3px 16px rgb(0 0 0 / 18%);
+    --page:           #0B1117;
+    --surface:        #111C23;
+    --surface-raised: #16242C;
+    --surface-soft:   #1C2E38;
+    --text:           #F1F4F3;
+    --text-secondary: #9AAEB8;
+    --text-tertiary:  #5E7A88;
+    --accent:         #7DB7D8;
+    --accent-hover:   #96C6E3;
+    --accent-soft:    #172535;
+    --accent-ink:     #C8E4F4;
+    --success:        #72C7C4;
+    --warning:        #E8D38A;
+    --border:         #26363F;
+    --border-strong:  #344D5A;
+    --focus:          #7DB7D8;
+    --shadow-sm: 0 1px 2px rgb(0 0 0 / 28%), 0 4px 14px rgb(0 0 0 / 14%);
+    --shadow-lg: 0 18px 56px rgb(0 0 0 / 44%), 0 3px 14px rgb(0 0 0 / 22%);
   }
 }
 
@@ -161,8 +163,8 @@ button {
   place-items: center;
   color: white;
   background: var(--accent);
-  border-radius: 9px;
-  box-shadow: inset 0 0 0 1px rgb(255 255 255 / 14%);
+  border-radius: 8px;
+  box-shadow: inset 0 0 0 1px rgb(255 255 255 / 10%);
 }
 
 .brand-mark svg {
@@ -178,15 +180,15 @@ button {
 
 .button {
   display: inline-flex;
-  min-height: 42px;
+  min-height: 40px;
   align-items: center;
   justify-content: center;
   gap: 8px;
   border: 1px solid transparent;
-  border-radius: 12px;
+  border-radius: var(--radius-sm);
   padding: 0 16px;
   font-size: 13px;
-  font-weight: 650;
+  font-weight: 600;
   line-height: 1;
   cursor: pointer;
   transition:
@@ -213,12 +215,12 @@ button {
 .button-primary {
   color: #fff;
   background: var(--accent);
-  box-shadow: 0 5px 16px color-mix(in srgb, var(--accent) 18%, transparent);
+  box-shadow: 0 4px 14px color-mix(in srgb, var(--accent) 20%, transparent);
 }
 
 .button-primary:hover:not(:disabled) {
   background: var(--accent-hover);
-  box-shadow: 0 7px 20px color-mix(in srgb, var(--accent) 24%, transparent);
+  box-shadow: 0 6px 18px color-mix(in srgb, var(--accent) 28%, transparent);
 }
 
 .button-secondary {
@@ -244,13 +246,13 @@ button {
 
 .icon-button {
   display: grid;
-  width: 38px;
-  height: 38px;
+  width: 36px;
+  height: 36px;
   flex: 0 0 auto;
   place-items: center;
   padding: 0;
   border: 1px solid transparent;
-  border-radius: 11px;
+  border-radius: var(--radius-sm);
   color: var(--text-secondary);
   background: transparent;
   cursor: pointer;
@@ -273,7 +275,7 @@ button {
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-sm);
+  box-shadow: none;
 }
 
 .loading-screen {
@@ -284,8 +286,8 @@ button {
 }
 
 .loading-dot {
-  width: 8px;
-  height: 8px;
+  width: 7px;
+  height: 7px;
   border-radius: 999px;
   background: var(--accent);
   animation: loading-pulse 1.2s ease-in-out infinite;
@@ -294,7 +296,7 @@ button {
 @keyframes loading-pulse {
   0%,
   100% {
-    opacity: 0.35;
+    opacity: 0.3;
     transform: scale(0.8);
   }
   50% {

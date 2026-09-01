@@ -2,7 +2,6 @@ import { sendRequest } from "../shared/messages";
 import type { AppSnapshot, ThemePreference } from "../shared/types";
 
 const SURFACE_ID = "blinkbreak-break-surface";
-const REPLACE_SURFACE_EVENT = "blinkbreak:replace-surface";
 
 function element<K extends keyof HTMLElementTagNameMap>(
   tag: K,
@@ -39,7 +38,6 @@ export class BreakSurface {
   private completed = false;
   private view: "prompt" | "active" | "complete" | null = null;
   private activeBreakStartedAt: number | null = null;
-  private readonly onReplacement = () => this.hide();
 
   showPrompt(state: AppSnapshot): void {
     if (this.host && this.view === "prompt") {
@@ -88,14 +86,10 @@ export class BreakSurface {
   }
 
   private mount(): void {
-    const existing = document.getElementById(SURFACE_ID);
-    existing?.dispatchEvent(new Event(REPLACE_SURFACE_EVENT));
-    existing?.remove();
     this.previousFocus = document.activeElement;
     this.host = element("div");
     this.host.id = SURFACE_ID;
     this.host.style.cssText = "all:initial;position:fixed;inset:0;z-index:2147483647;display:block;";
-    this.host.addEventListener(REPLACE_SURFACE_EVENT, this.onReplacement, { once: true });
     this.root = this.host.attachShadow({ mode: "closed" });
     const style = element("style");
     style.textContent = SURFACE_STYLES;
@@ -217,7 +211,9 @@ export class BreakSurface {
     pupil.append(element("span", "eye-glint"));
     animatedEye.append(pupil);
     eyeTilt.append(animatedEye);
-    breathing.append(element("span", "breathing-orbit"), element("span", "breathing-orbit inner"), eyeTilt);
+    const innerOrbit = element("span", "breathing-orbit");
+    innerOrbit.classList.add("inner");
+    breathing.append(element("span", "breathing-orbit"), innerOrbit, eyeTilt);
     const eyebrow = element("p", "eyebrow", "LOOK BEYOND THE SCREEN");
     const title = element("h1", "title", "Let your gaze rest.");
     title.id = "bb-title";
@@ -424,45 +420,47 @@ const SURFACE_STYLES = `
   * { box-sizing: border-box; }
   button { font: inherit; }
   .backdrop {
-    --bg: #fbfaf6; --surface: #fff; --text: #1d2521; --muted: #68736d;
-    --soft: #e4efeb; --border: #dce1dc; --accent: #1d6b5b; --accent-hover: #15584b;
+    --bg: #f0f3f5; --surface: #fff; --text: #1a2630; --muted: #4a6070;
+    --soft: #dbeef8; --border: #cdd8e0; --accent: #3a8ab8; --accent-hover: #2e77a0;
+    --success: #3a9e9b; --warning: #b8942a;
     position: fixed; inset: 0; display: grid; place-items: center; padding: 24px;
-    isolation: isolate; color: var(--text); background: radial-gradient(circle at 50% 46%, rgb(29 107 91 / 11%), transparent 45%), rgb(21 31 26 / 42%);
+    isolation: isolate; color: var(--text); background: rgb(7 14 20 / 52%);
     font-family: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
     animation: bb-fade-in 240ms cubic-bezier(.22,1,.36,1) both;
   }
   .backdrop.dark {
-    --bg: #141815; --surface: #1b211d; --text: #eff3ef; --muted: #a4aea8;
-    --soft: #213b33; --border: #303a34; --accent: #70b7a4; --accent-hover: #86c4b4;
-    background: radial-gradient(circle at 50% 46%, rgb(112 183 164 / 8%), transparent 45%), rgb(5 8 6 / 64%);
+    --bg: #0B1117; --surface: #111C23; --text: #F1F4F3; --muted: #9AAEB8;
+    --soft: #172535; --border: #26363F; --accent: #7DB7D8; --accent-hover: #96C6E3;
+    --success: #72C7C4; --warning: #E8D38A;
+    background: rgb(4 8 12 / 68%);
   }
   .panel {
     width: min(440px, calc(100vw - 32px)); overflow: hidden; border: 1px solid var(--border);
-    border-radius: 28px; background: var(--surface); box-shadow: 0 24px 80px rgb(12 22 16 / 22%), 0 3px 12px rgb(12 22 16 / 8%);
+    border-radius: 20px; background: var(--surface); box-shadow: 0 24px 80px rgb(0 0 0 / 40%), 0 3px 12px rgb(0 0 0 / 20%);
     contain: layout paint style; transform: translateZ(0); animation: bb-rise 440ms cubic-bezier(.22,1,.36,1) both;
   }
-  .topbar { display: flex; align-items: center; justify-content: space-between; padding: 20px 22px 0; }
+  .topbar { display: flex; align-items: center; justify-content: space-between; padding: 18px 20px 0; }
   .brand { display: inline-flex; align-items: center; gap: 9px; font-size: 13px; font-weight: 700; letter-spacing: -.015em; }
-  .brand-eye { position: relative; display: block; width: 27px; height: 27px; border-radius: 8px; background: var(--accent); }
-  .brand-eye::before { content: ""; position: absolute; width: 15px; height: 9px; left: 6px; top: 9px; border-radius: 80% 20% 80% 20%; transform: rotate(45deg); background: white; opacity: .94; }
-  .brand-eye::after { content: ""; position: absolute; width: 4px; height: 4px; left: 12px; top: 12px; border-radius: 50%; background: var(--accent); }
-  .quiet-label { color: var(--muted); font-size: 11px; font-weight: 650; letter-spacing: .04em; text-transform: uppercase; }
-  .content { display: flex; flex-direction: column; align-items: center; padding: 30px 38px 36px; text-align: center; }
+  .brand-eye { position: relative; display: block; width: 26px; height: 26px; border-radius: 7px; background: var(--accent); }
+  .brand-eye::before { content: ""; position: absolute; width: 14px; height: 8px; left: 6px; top: 9px; border-radius: 80% 20% 80% 20%; transform: rotate(45deg); background: white; opacity: .9; }
+  .brand-eye::after { content: ""; position: absolute; width: 4px; height: 4px; left: 11px; top: 12px; border-radius: 50%; background: var(--accent); }
+  .quiet-label { color: var(--muted); font-size: 11px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; }
+  .content { display: flex; flex-direction: column; align-items: center; padding: 28px 36px 34px; text-align: center; }
   .pause-visual { position: relative; display: grid; width: 96px; height: 96px; margin: 0 0 24px; place-items: center; }
-  .pause-halo { position: absolute; inset: 0; border-radius: 50%; background: var(--soft); animation: bb-breathe 5.5s ease-in-out infinite; }
-  .pause-eye { position: relative; width: 48px; height: 27px; border: 2px solid var(--accent); border-radius: 80% 20% 80% 20%; transform: rotate(45deg); }
+  .pause-halo { position: absolute; inset: 0; border-radius: 50%; background: var(--soft); border: 1px solid var(--border); animation: bb-breathe 5.5s ease-in-out infinite; }
+  .pause-eye { position: relative; width: 48px; height: 27px; border: 1.5px solid var(--accent); border-radius: 80% 20% 80% 20%; transform: rotate(45deg); }
   .pause-eye::before { content: ""; position: absolute; width: 13px; height: 13px; left: 15px; top: 5px; border-radius: 50%; background: var(--accent); }
   .pause-eye::after { content: ""; position: absolute; width: 2px; height: 7px; left: 20px; top: 8px; border-left: 2px solid var(--surface); border-right: 2px solid var(--surface); }
-  .eyebrow { margin: 0 0 10px; color: var(--accent); font-size: 11px; font-weight: 750; letter-spacing: .12em; }
+  .eyebrow { margin: 0 0 10px; color: var(--accent); font-size: 11px; font-weight: 700; letter-spacing: .1em; opacity: .85; }
   .title { margin: 0; color: var(--text); font-size: 28px; font-weight: 700; line-height: 1.12; letter-spacing: -.035em; }
-  .description { max-width: 330px; margin: 13px 0 0; color: var(--muted); font-size: 15px; line-height: 1.55; }
-  .insight { display: inline-flex; align-items: center; gap: 8px; margin: 24px 0 0; padding: 9px 12px; border-radius: 999px; color: var(--muted); background: var(--soft); font-size: 11.5px; font-weight: 580; }
-  .insight-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 13%, transparent); }
-  .actions { display: grid; width: 100%; grid-template-columns: 1.45fr 1fr; gap: 10px; margin: 28px 0 0; }
-  button { min-height: 45px; border-radius: 13px; border: 1px solid transparent; padding: 0 16px; cursor: pointer; font-size: 13px; font-weight: 700; transition: transform 140ms ease, background 140ms ease, border-color 140ms ease; }
+  .description { max-width: 330px; margin: 12px 0 0; color: var(--muted); font-size: 15px; line-height: 1.55; }
+  .insight { display: inline-flex; align-items: center; gap: 8px; margin: 22px 0 0; padding: 8px 12px; border-radius: 999px; color: var(--muted); background: var(--soft); border: 1px solid var(--border); font-size: 11.5px; font-weight: 560; }
+  .insight-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--success); box-shadow: 0 0 0 3px color-mix(in srgb, var(--success) 15%, transparent); }
+  .actions { display: grid; width: 100%; grid-template-columns: 1.45fr 1fr; gap: 10px; margin: 26px 0 0; }
+  button { min-height: 43px; border-radius: 10px; border: 1px solid transparent; padding: 0 16px; cursor: pointer; font-size: 13px; font-weight: 650; transition: transform 140ms ease, background 140ms ease, border-color 140ms ease; }
   button:hover { transform: translateY(-1px); } button:active { transform: scale(.985); }
-  button:focus-visible { outline: 3px solid color-mix(in srgb, var(--accent) 35%, transparent); outline-offset: 2px; }
-  .primary { color: white; background: var(--accent); box-shadow: 0 6px 18px color-mix(in srgb, var(--accent) 20%, transparent); }
+  button:focus-visible { outline: 2px solid color-mix(in srgb, var(--accent) 45%, transparent); outline-offset: 2px; }
+  .primary { color: white; background: var(--accent); box-shadow: 0 4px 14px color-mix(in srgb, var(--accent) 22%, transparent); }
   .primary:hover { background: var(--accent-hover); }
   .secondary, .choice { color: var(--text); background: transparent; border-color: var(--border); }
   .secondary:hover, .choice:hover { background: var(--soft); }
@@ -472,34 +470,34 @@ const SURFACE_STYLES = `
   .choice-wide { grid-column: 1 / -1; }
   .active-content { padding-top: 36px; }
   .breathing { position: relative; display: grid; width: 164px; height: 164px; margin: 0 0 28px; place-items: center; }
-  .breathing-orbit { position: absolute; inset: 0; border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent); border-radius: 50%; animation: bb-breathe-orbit 6s ease-in-out infinite; }
-  .breathing-orbit.inner { inset: 22px; border-style: dashed; opacity: .48; animation-delay: .35s; animation-direction: reverse; }
-  .eye-tilt { display: grid; width: 106px; height: 66px; place-items: center; transform: rotate(45deg); filter: drop-shadow(0 14px 18px color-mix(in srgb, var(--accent) 18%, transparent)); }
-  .animated-eye { position: relative; display: block; width: 94px; height: 56px; overflow: hidden; border: 2px solid var(--accent); border-radius: 100% 0 100% 0; background: var(--surface); transform-origin: 50% 50%; animation: bb-eye-blink 5.8s cubic-bezier(.4,0,.2,1) infinite; }
+  .breathing-orbit { position: absolute; inset: 0; border: 1px solid color-mix(in srgb, var(--accent) 22%, transparent); border-radius: 50%; animation: bb-breathe-orbit 6s ease-in-out infinite; }
+  .breathing-orbit.inner { inset: 22px; border-style: dashed; opacity: .4; animation-delay: .35s; animation-direction: reverse; }
+  .eye-tilt { display: grid; width: 106px; height: 66px; place-items: center; transform: rotate(45deg); filter: drop-shadow(0 12px 16px color-mix(in srgb, var(--accent) 16%, transparent)); }
+  .animated-eye { position: relative; display: block; width: 94px; height: 56px; overflow: hidden; border: 1.5px solid var(--accent); border-radius: 100% 0 100% 0; background: var(--surface); transform-origin: 50% 50%; animation: bb-eye-blink 5.8s cubic-bezier(.4,0,.2,1) infinite; }
   .eye-pupil { position: absolute; display: grid; width: 29px; height: 29px; left: 32px; top: 13px; place-items: center; border-radius: 50%; background: var(--accent); animation: bb-eye-gaze 8.5s cubic-bezier(.45,.05,.3,1) infinite; }
-  .eye-glint { width: 7px; height: 7px; margin: -9px 0 0 -8px; border-radius: 50%; background: white; opacity: .88; }
+  .eye-glint { width: 7px; height: 7px; margin: -9px 0 0 -8px; border-radius: 50%; background: white; opacity: .8; }
   .guide { min-height: 24px; }
   .timer { min-width: 116px; margin: 22px 0 14px; contain: content; transform: translateZ(0); font-variant-numeric: tabular-nums; color: var(--text); font-size: 43px; font-weight: 560; letter-spacing: -.055em; }
   .blink-guide { display: flex; height: 18px; align-items: center; gap: 8px; margin-bottom: 18px; }
-  .blink-mark { display: block; width: 16px; height: 3px; border-radius: 999px; background: var(--border); transition: background 280ms ease, transform 280ms ease; }
-  .blink-mark.done { background: var(--accent); transform: scaleX(.75); }
-  .text-button { min-height: 34px; color: var(--muted); background: transparent; padding: 0 10px; font-weight: 600; }
+  .blink-mark { display: block; width: 16px; height: 2px; border-radius: 999px; background: var(--border); transition: background 280ms ease, transform 280ms ease; }
+  .blink-mark.done { background: var(--success); transform: scaleX(.75); }
+  .text-button { min-height: 34px; color: var(--muted); background: transparent; padding: 0 10px; font-weight: 580; }
   .text-button:hover { color: var(--text); }
   .complete-backdrop { animation: bb-fade-in 160ms ease-out both, bb-fade-out 180ms 1.32s ease-in forwards; }
   .complete-panel { width: min(390px, calc(100vw - 32px)); }
-  .complete-content { padding: 25px 34px 27px; }
+  .complete-content { padding: 24px 32px 26px; }
   .complete-content .title { font-size: 25px; }
   .complete-content .description { max-width: 300px; margin-top: 9px; font-size: 13.5px; }
-  .success-mark { position: relative; display: grid; width: 72px; height: 72px; margin: 0 0 17px; place-items: center; border: 1px solid color-mix(in srgb, var(--accent) 22%, transparent); border-radius: 50%; color: var(--accent); background: color-mix(in srgb, var(--accent) 10%, var(--surface)); box-shadow: 0 10px 30px color-mix(in srgb, var(--accent) 10%, transparent); animation: bb-success 380ms cubic-bezier(.22,1,.36,1) both; }
-  .success-mark::before { content: ""; position: absolute; inset: 7px; border: 1px solid color-mix(in srgb, var(--accent) 15%, transparent); border-radius: inherit; }
+  .success-mark { position: relative; display: grid; width: 72px; height: 72px; margin: 0 0 17px; place-items: center; border: 1px solid color-mix(in srgb, var(--success) 28%, var(--border)); border-radius: 50%; color: var(--success); background: color-mix(in srgb, var(--success) 9%, var(--surface)); box-shadow: 0 8px 24px color-mix(in srgb, var(--success) 10%, transparent); animation: bb-success 380ms cubic-bezier(.22,1,.36,1) both; }
+  .success-mark::before { content: ""; position: absolute; inset: 7px; border: 1px solid color-mix(in srgb, var(--success) 15%, transparent); border-radius: inherit; }
   .success-check { font-size: 29px; font-weight: 500; line-height: 1; transform: translateY(-1px); }
-  .completion-progress { width: 128px; height: 2px; overflow: hidden; margin-top: 21px; border-radius: 999px; background: var(--border); }
-  .completion-progress span { display: block; width: 100%; height: 100%; border-radius: inherit; background: var(--accent); transform-origin: left; animation: bb-completion-progress 1.5s linear forwards; }
+  .completion-progress { width: 128px; height: 2px; overflow: hidden; margin-top: 20px; border-radius: 999px; background: var(--border); }
+  .completion-progress span { display: block; width: 100%; height: 100%; border-radius: inherit; background: var(--success); transform-origin: left; animation: bb-completion-progress 1.5s linear forwards; }
   @keyframes bb-fade-in { from { opacity: 0; } }
   @keyframes bb-rise { from { opacity: 0; transform: translateY(10px) scale(.985); } }
   @keyframes bb-reveal { from { opacity: 0; transform: translateY(-3px); } }
-  @keyframes bb-breathe { 0%,100% { transform: scale(.9); opacity: .72; } 50% { transform: scale(1); opacity: 1; } }
-  @keyframes bb-breathe-orbit { 0%,100% { transform: scale(.82); opacity: .35; } 50% { transform: scale(1); opacity: 1; } }
+  @keyframes bb-breathe { 0%,100% { transform: scale(.9); opacity: .6; } 50% { transform: scale(1); opacity: 1; } }
+  @keyframes bb-breathe-orbit { 0%,100% { transform: scale(.82); opacity: .28; } 50% { transform: scale(1); opacity: 1; } }
   @keyframes bb-eye-gaze { 0%, 14%, 100% { transform: translate(0, 0); } 29%, 42% { transform: translate(10px, -3px); } 57%, 70% { transform: translate(-9px, 5px); } 82%, 92% { transform: translate(3px, 3px); } }
   @keyframes bb-eye-blink { 0%, 40%, 44%, 72%, 76%, 100% { transform: scaleY(1); } 42%, 74% { transform: scaleY(.08); } }
   @keyframes bb-success { from { opacity: 0; transform: scale(.75); } }
@@ -507,5 +505,5 @@ const SURFACE_STYLES = `
   @keyframes bb-fade-out { to { opacity: 0; } }
   [data-motion="reduced"] *, [data-motion="reduced"] *::before, [data-motion="reduced"] *::after { animation: none !important; transition-duration: .01ms !important; }
   @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition-duration: .01ms !important; } }
-  @media (max-width: 480px) { .backdrop { padding: 12px; } .panel { border-radius: 22px; } .content { padding: 25px 24px 30px; } .title { font-size: 25px; } }
+  @media (max-width: 480px) { .backdrop { padding: 12px; } .panel { border-radius: 16px; } .content { padding: 22px 22px 28px; } .title { font-size: 25px; } }
 `;

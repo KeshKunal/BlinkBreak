@@ -107,15 +107,6 @@ export class BlinkBreakController {
         return { ok: true, state };
       }
 
-      case "GET_POPUP_STATE": {
-        const state = await loadAppSnapshot();
-        const pageBreakSurfaceShown =
-          state.timer.status === "break_active"
-            ? await this.content.showOnActiveTab(state)
-            : false;
-        return { ok: true, state, pageBreakSurfaceShown };
-      }
-
       case "CONTENT_READY": {
         if (sender.tab?.id === undefined) {
           return { ok: false, error: "Content context rejected" };
@@ -195,8 +186,11 @@ export class BlinkBreakController {
       case "TAKE_BREAK_NOW": {
         const state = await loadAppSnapshot();
         if (state.timer.status === "paused") return { ok: true, state };
+        // Transition directly to break_active — skip the prompt overlay to avoid
+        // showing two dialogs when triggered from the popup "Take a break now" button.
         state.timer = transitionTimer(state.timer, { type: "DUE" }, state.settings);
         state.timer = transitionTimer(state.timer, { type: "PROMPT" }, state.settings);
+        state.timer = transitionTimer(state.timer, { type: "START_BREAK" }, state.settings);
         await saveTimer(state.timer);
         await this.syncRuntime(state);
         await this.content.showOnActiveTab(state);
@@ -208,10 +202,8 @@ export class BlinkBreakController {
         state.timer = transitionTimer(state.timer, { type: "START_BREAK" }, state.settings);
         await saveAppSnapshot(state);
         await this.syncRuntime(state);
-        const pageBreakSurfaceShown = sender.tab?.id === undefined
-          ? await this.content.showOnActiveTab(state, true)
-          : await this.content.showOnTab(sender.tab.id, state);
-        return { ok: true, state, pageBreakSurfaceShown };
+        await this.content.showOnActiveTab(state, sender.tab?.id === undefined);
+        return { ok: true, state };
       }
 
       case "DEFER_BREAK":
@@ -375,7 +367,7 @@ export class BlinkBreakController {
     const badge = timer.status === "prompt_ready" ? "1" : timer.status === "paused" ? "II" : "";
     await Promise.all([
       chrome.action.setBadgeText({ text: badge }),
-      chrome.action.setBadgeBackgroundColor({ color: "#1D6B5B" }),
+      chrome.action.setBadgeBackgroundColor({ color: "#7DB7D8" }),
       chrome.action.setTitle({ title: labels[timer.status] ?? "BlinkBreak" }),
     ]);
   }

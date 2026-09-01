@@ -2,7 +2,6 @@ import type { ActivitySnapshot, AppSnapshot, UserSettings } from "./types";
 
 export type ExtensionRequest =
   | { type: "GET_APP_STATE" }
-  | { type: "GET_POPUP_STATE" }
   | { type: "CONTENT_READY" }
   | { type: "UPDATE_SETTINGS"; patch: Partial<UserSettings> }
   | { type: "SYNC_SITE_ACCESS" }
@@ -17,7 +16,7 @@ export type ExtensionRequest =
   | { type: "GET_ACTIVITY_SNAPSHOT" };
 
 export type BackgroundResponse =
-  | { ok: true; state?: AppSnapshot; pageBreakSurfaceShown?: boolean }
+  | { ok: true; state?: AppSnapshot }
   | { ok: false; error: string };
 
 export type ContentCommand =
@@ -56,7 +55,6 @@ export function isExtensionRequest(value: unknown): value is ExtensionRequest {
   if (!isRecord(value) || typeof value.type !== "string") return false;
   switch (value.type) {
     case "GET_APP_STATE":
-    case "GET_POPUP_STATE":
     case "CONTENT_READY":
     case "PAUSE_TIMER":
     case "RESUME_TIMER":
