@@ -1,12 +1,9 @@
-﻿import { useCallback, useEffect, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useState, type ReactNode } from "react";
 import {
-  Activity,
   ArrowRight,
-  ChevronRight,
   CirclePause,
   CirclePlay,
   Settings,
-  ShieldCheck,
   Sparkles,
 } from "lucide-react";
 import { Brand } from "../shared/components/Brand";
@@ -28,24 +25,14 @@ function remainingMs(timer: TimerState, now: number): number {
   return 0;
 }
 
-function statusCopy(timer: TimerState, remaining: number) {
+function timerLabel(timer: TimerState): string {
   switch (timer.status) {
     case "paused":
-      return { label: "Paused", detail: "Your rhythm is on hold", tone: "muted" };
-    case "waiting_for_pause":
-    case "evaluating":
-    case "break_due":
-      return { label: "You're in the flow", detail: "I'll wait for a natural pause", tone: "smart" };
+      return "TIME HELD";
     case "prompt_ready":
-      return { label: "Good moment for a break", detail: "Your activity just settled", tone: "ready" };
-    case "break_active":
-      return { label: "Break in progress", detail: "Let your gaze rest", tone: "ready" };
-    case "deferred":
-      return { label: "No worries, I'll wait", detail: "Your break has been moved", tone: "muted" };
-    case "counting":
-      return remaining <= 2 * 60_000
-        ? { label: "Break coming up", detail: "I'll look for a quiet moment", tone: "smart" }
-        : { label: "In a comfortable rhythm", detail: "Smart timing is listening quietly", tone: "normal" };
+      return "BREAK READY";
+    default:
+      return "NEXT BREAK";
   }
 }
 
@@ -105,7 +92,6 @@ export function App() {
     return (
       <main className="popup popup-message">
         <Brand />
-        <div className="message-mark"><ShieldCheck /></div>
         <h1>BlinkBreak needs a refresh.</h1>
         <p>Reload the extension once, and your local rhythm will be restored.</p>
       </main>
@@ -121,20 +107,14 @@ export function App() {
   }
 
   if (state.timer.status === "break_active") {
-    // Break is running in the content-script overlay â€” close popup so it isn't in the way
     window.close();
     return null;
   }
 
-  const goalProgress = Math.min(1, state.stats.completed / state.settings.dailyGoal);
-
   return (
     <main className="popup">
       <header className="popup-header">
-        <div>
-          <Brand />
-          <p className="tagline">Protect your focus. Give your eyes a moment.</p>
-        </div>
+        <Brand />
         <button
           className="icon-button"
           type="button"
@@ -170,8 +150,6 @@ export function App() {
             variant="ghost"
             disabled={pending !== null}
             onClick={() => {
-              // Close popup first so lastFocusedWindow resolves to the real tab,
-              // then fire the break â€” background will show the active break overlay directly.
               window.close();
               void sendRequest({ type: "TAKE_BREAK_NOW" });
             }}
@@ -181,44 +159,6 @@ export function App() {
           </Button>
         )}
       </div>
-
-      <section className="today-card card" aria-labelledby="today-heading">
-        <div className="card-heading-row">
-          <div>
-            <span className="overline" id="today-heading">TODAY</span>
-            <strong>{state.stats.completed === 0 ? "Your first reset is ahead" : `${state.stats.completed} quiet reset${state.stats.completed === 1 ? "" : "s"}`}</strong>
-          </div>
-          <span className="progress-count">{state.stats.completed}<span> / {state.settings.dailyGoal}</span></span>
-        </div>
-        <div className="progress-track" aria-label={`${state.stats.completed} of ${state.settings.dailyGoal} breaks completed`}>
-          <span style={{ transform: `scaleX(${goalProgress})` }} />
-        </div>
-        <p className="card-note">
-          {state.stats.completed === 0
-            ? "No pressure. Small pauses add up naturally."
-            : state.stats.totalBreakSeconds < 60
-              ? `${Math.round(state.stats.totalBreakSeconds)} sec away from the screen so far.`
-              : `${Math.round(state.stats.totalBreakSeconds / 60)} min away from the screen so far.`}
-        </p>
-      </section>
-
-      <button className="adaptive-card" type="button" onClick={() => void chrome.runtime.openOptionsPage()}>
-        <span className="adaptive-icon"><Activity /></span>
-        <span className="adaptive-copy">
-          <strong>{state.settings.smartInterruptionEnabled ? "Adaptive timing is on" : "Fixed timing is on"}</strong>
-          <small>
-            {state.settings.smartInterruptionEnabled
-              ? `${state.settings.breakIntervalMinutes} min rhythm Â· ${state.settings.sensitivity} pause detection`
-              : `${state.settings.breakIntervalMinutes} min fixed rhythm`}
-          </small>
-        </span>
-        <ChevronRight />
-      </button>
-
-      <footer className="popup-footer">
-        <span><ShieldCheck /> Activity stays on this device</span>
-        <button type="button" onClick={() => void chrome.runtime.openOptionsPage()}>Settings</button>
-      </footer>
     </main>
   );
 }
@@ -266,7 +206,6 @@ function TimerSection({ state }: { state: AppSnapshot }) {
   const clockActive = ["counting", "deferred"].includes(state.timer.status);
   const now = useTimestampClock(clockActive);
   const remaining = remainingMs(state.timer, now);
-  const status = statusCopy(state.timer, remaining);
   const intervalMs = state.settings.breakIntervalMinutes * 60_000;
   const progress = ["counting", "deferred", "paused"].includes(state.timer.status)
     ? Math.min(1, Math.max(0, 1 - remaining / intervalMs))
@@ -274,20 +213,15 @@ function TimerSection({ state }: { state: AppSnapshot }) {
 
   return (
     <section className="timer-section" aria-labelledby="next-break-heading">
-      <div className={`status-pill status-${status.tone}`}>
-        <span className="status-pulse" aria-hidden="true" />
-        {status.label}
-      </div>
       <TimerRing progress={progress} paused={state.timer.status === "paused"}>
         <span className="timer-label" id="next-break-heading">
-          {state.timer.status === "paused" ? "TIME HELD" : remaining === 0 ? "BREAK DUE" : "NEXT BREAK"}
+          {timerLabel(state.timer)}
         </span>
         <strong className="countdown" role="timer">
           {remaining === 0 && !["paused", "counting", "deferred"].includes(state.timer.status)
             ? "READY"
             : formatCountdown(remaining)}
         </strong>
-        <span className="timer-detail">{status.detail}</span>
       </TimerRing>
     </section>
   );
