@@ -20,17 +20,19 @@ When smart timing is enabled, the content script keeps short-lived in-memory sig
 - last keyboard, pointer, click, scroll, and general interaction timestamps;
 - the current page-load timestamp;
 - counts of keyboard and general interactions in the previous 30 seconds;
-- whether the page is visible, the window is focused, fullscreen is active, or HTML media is playing.
+- whether the page is visible, the window is focused, fullscreen is active, or HTML media is playing;
+- whether the current URL matches known high-priority domains (e.g., video calls or meetings);
+- a high-level work type classification (such as meeting, coding flow, or reading).
 
 These signals are reduced to an interruption score locally. During ordinary browsing they remain inside the current page and do not periodically wake the service worker. A transient snapshot is requested when a break becomes due; quiet reporting is enabled only while BlinkBreak is waiting for a natural pause. Signals are not written to storage and disappear when the page or service worker closes.
 
 ## Data BlinkBreak never collects
 
-BlinkBreak does not record or inspect:
+BlinkBreak does not record, store, or transmit:
 
 - keys pressed, typed text, passwords, or form values;
 - page text, document content, or meeting content;
-- URLs, page titles, browsing history, bookmarks, or downloads;
+- URLs, page titles, browsing history, bookmarks, or downloads (URLs are only inspected transiently in memory to avoid interrupting meetings, they are never recorded or transmitted);
 - pointer coordinates;
 - screenshots, camera, or microphone;
 - cookies, identity, IP address, or personal information.
@@ -51,6 +53,8 @@ The production extension makes no external network requests and works offline. A
 
 Uninstalling BlinkBreak removes its local extension storage under normal browser behavior. Users can also remove extension data by clearing the extension’s storage from browser developer tools.
 
-## Wellness scope
+## Wellness scope & Disclaimer of Liability
 
-BlinkBreak provides general wellness reminders. It does not diagnose, prevent, or treat any medical condition.
+The developer created BlinkBreak with the sole intent of helping people protect their eye health through general wellness reminders. It does not diagnose, prevent, or treat any medical condition.
+
+This extension is provided "as is", without warranty of any kind. Under no circumstances shall the developer or contributors be held liable for any claim, damages, data loss, productivity loss, or other liability arising from, out of, or in connection with the software or the use of the software. By using BlinkBreak, you accept full responsibility and assume all risks associated with its use.
