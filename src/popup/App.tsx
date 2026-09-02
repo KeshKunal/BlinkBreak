@@ -185,7 +185,8 @@ function PopupBreakActive({ state, onState }: { state: AppSnapshot; onState: (st
 
   useEffect(() => {
     if (remaining <= 0) {
-      void finish();
+      const timer = window.setTimeout(() => void finish(), 0);
+      return () => window.clearTimeout(timer);
     }
   }, [finish, remaining]);
 

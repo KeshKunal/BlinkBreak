@@ -40,9 +40,11 @@ export class ContentBridge {
   }
 
   async showOnActiveTab(state?: AppSnapshot, playSound = false): Promise<void> {
-    let [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+    let tab: chrome.tabs.Tab | undefined = (
+      await chrome.tabs.query({ active: true, lastFocusedWindow: true })
+    )[0];
     if (tab?.id === undefined) {
-      [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      tab = (await chrome.tabs.query({ active: true, currentWindow: true }))[0];
     }
     if (tab?.id === undefined) {
       const tabs = await chrome.tabs.query({ active: true });
