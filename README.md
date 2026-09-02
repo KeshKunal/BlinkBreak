@@ -1,4 +1,4 @@
-# BlinkBreak 👁️
+# <img src="public/icons/logo.png" alt="BlinkBreak Icon" width="36" height="36" align="top"> BlinkBreak
 
 **BlinkBreak** is a privacy-first, intelligent Chrome extension that protects your eye health with guided eye resets (20-20-20 rule) without breaking your work flow.
 
