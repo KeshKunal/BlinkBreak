@@ -59,9 +59,7 @@ export class ContentBridge {
   async showOnTab(tabId: number, state?: AppSnapshot, playSound = false): Promise<void> {
     const current = state ?? (await loadAppSnapshot());
     let command: ContentCommand = { type: "HIDE_BREAK_UI" };
-    if (current.timer.status === "prompt_ready") {
-      command = { type: "SHOW_BREAK_PROMPT", state: current };
-    } else if (current.timer.status === "break_active") {
+    if (current.timer.status === "break_active") {
       command = { type: "SHOW_ACTIVE_BREAK", state: current, playSound };
     }
     try {

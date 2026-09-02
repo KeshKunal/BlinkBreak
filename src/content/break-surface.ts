@@ -36,12 +36,8 @@ export class BreakSurface {
   private keyHandler: ((event: KeyboardEvent) => void) | null = null;
   private previousFocus: Element | null = null;
   private completed = false;
-  private view: "prompt" | "active" | "complete" | null = null;
+  private view: "active" | "complete" | null = null;
   private activeBreakStartedAt: number | null = null;
-
-  showPrompt(state: AppSnapshot): void {
-    this.showActive(state, true);
-  }
 
   showActive(state: AppSnapshot, playSound = false): void {
     const startedAt = state.timer.activeBreakStartedAt;
@@ -122,50 +118,7 @@ export class BreakSurface {
     return { backdrop, panel, content };
   }
 
-  private renderPrompt(): void {
-    if (!this.root || !this.state) return;
-    this.clearViewTasks();
-    this.root.querySelector(".backdrop")?.remove();
-    const { content } = this.shell();
-    const visual = element("div", "pause-visual");
-    visual.append(element("span", "pause-halo"), element("span", "pause-eye"));
-    const eyebrow = element("p", "eyebrow", "GOOD MOMENT");
-    const title = element("h1", "title", "Give your eyes a moment.");
-    title.id = "bb-title";
-    const description = element(
-      "p",
-      "description",
-      this.state.timer.consecutiveDeferrals >= 2
-        ? "You've been focused for a while. Look toward something farther away and let your gaze soften."
-        : "Look toward something farther from your screen and let your gaze soften.",
-    );
-    const insight = element("div", "insight");
-    insight.append(element("span", "insight-dot"), element("span", "insight-text", "I waited until your activity settled."));
 
-    const actions = element("div", "actions");
-    const take = element(
-      "button",
-      "primary",
-      `Take ${this.state.settings.breakDurationSeconds} seconds`,
-    );
-    take.type = "button";
-    take.addEventListener("click", () => void this.startBreak());
-    const later = element("button", "secondary", "Later");
-    later.type = "button";
-    later.setAttribute("aria-expanded", "false");
-    const deferChoices = this.createDeferralChoices();
-    later.addEventListener("click", () => {
-      const open = deferChoices.hidden;
-      deferChoices.hidden = !open;
-      later.setAttribute("aria-expanded", String(open));
-      if (open) deferChoices.querySelector<HTMLButtonElement>("button")?.focus();
-    });
-    actions.append(take, later);
-    content.append(visual, eyebrow, title, description, insight, actions, deferChoices);
-    this.scheduleTask(() => {
-      if (take.isConnected) take.focus();
-    }, 30);
-  }
 
   private createDeferralChoices(): HTMLDivElement {
     const wrapper = element("div", "defer-choices");

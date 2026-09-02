@@ -92,7 +92,7 @@ export class BlinkBreakController {
     const state = recoverAppSnapshot(startup.state, now);
     if (startup.needsPersistence || state !== startup.state) await saveAppSnapshot(state);
     await this.syncRuntime(state);
-    if (["prompt_ready", "break_active"].includes(state.timer.status)) {
+    if (["break_active"].includes(state.timer.status)) {
       await this.content.showOnActiveTab(state);
     }
     this.initialized = true;
@@ -190,7 +190,6 @@ export class BlinkBreakController {
         // Transition directly to break_active — skip the prompt overlay to avoid
         // showing two dialogs when triggered from the popup "Take a break now" button.
         state.timer = transitionTimer(state.timer, { type: "DUE" }, state.settings);
-        state.timer = transitionTimer(state.timer, { type: "PROMPT" }, state.settings);
         state.timer = transitionTimer(state.timer, { type: "START_BREAK" }, state.settings);
         await saveAppSnapshot(state);
         await this.syncRuntime(state);
@@ -267,7 +266,7 @@ export class BlinkBreakController {
     suppliedState?: AppSnapshot,
   ): Promise<void> {
     const state = suppliedState ?? (await loadAppSnapshot());
-    if (["paused", "prompt_ready", "break_active"].includes(state.timer.status)) return;
+    if (["paused", "break_active"].includes(state.timer.status)) return;
     const now = Date.now();
     if (["counting", "deferred"].includes(state.timer.status) && state.timer.nextBreakDueAt > now) {
       await this.syncRuntime(state);
@@ -333,7 +332,6 @@ export class BlinkBreakController {
           state.settings.breakDurationSeconds * 1_000;
         break;
       case "paused":
-      case "prompt_ready":
         break;
     }
     const existing = await chrome.alarms.get(SCHEDULER_ALARM);
@@ -378,10 +376,9 @@ export class BlinkBreakController {
     const labels: Partial<Record<TimerState["status"], string>> = {
       paused: "Paused",
       waiting_for_pause: "Waiting for a natural pause",
-      prompt_ready: "A good moment for a break",
       break_active: "Break in progress",
     };
-    const badge = timer.status === "prompt_ready" ? "1" : timer.status === "paused" ? "II" : "";
+    const badge = timer.status === "paused" ? "II" : "";
     await Promise.all([
       chrome.action.setBadgeText({ text: badge }),
       chrome.action.setBadgeBackgroundColor({ color: "#7DB7D8" }),

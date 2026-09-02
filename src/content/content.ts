@@ -53,8 +53,6 @@ document.getElementById("blinkbreak-break-surface")?.remove();
       sendResponse({ ready: true });
     } else if (message?.type === "GET_ACTIVITY_SNAPSHOT") {
       sendResponse(tracker.snapshot());
-    } else if (message?.type === "SHOW_BREAK_PROMPT" && message.state) {
-      breakSurface.showPrompt(message.state);
     } else if (message?.type === "SHOW_ACTIVE_BREAK" && message.state) {
       breakSurface.showActive(message.state, message.playSound === true);
     } else if (message?.type === "HIDE_BREAK_UI") {

@@ -4,7 +4,6 @@ import type { AppSnapshot, TimerState, UserSettings } from "../shared/types";
 export type TimerEvent =
   | { type: "DUE" }
   | { type: "WAIT_FOR_PAUSE"; delayMs: number }
-  | { type: "PROMPT" }
   | { type: "START_BREAK" }
   | { type: "DEFER"; minutes: number }
   | { type: "PAUSE" }
@@ -20,7 +19,7 @@ export function transitionTimer(
 ): TimerState {
   switch (event.type) {
     case "DUE":
-      if (["paused", "break_active", "prompt_ready"].includes(state.status)) return state;
+      if (["paused", "break_active"].includes(state.status)) return state;
       return {
         ...state,
         status: "evaluating",
@@ -34,15 +33,6 @@ export function transitionTimer(
         ...state,
         status: "waiting_for_pause",
         nextEvaluationAt: now + Math.max(30_000, event.delayMs),
-        lastTransitionAt: now,
-      };
-
-    case "PROMPT":
-      if (!["break_due", "evaluating", "waiting_for_pause"].includes(state.status)) return state;
-      return {
-        ...state,
-        status: "prompt_ready",
-        nextEvaluationAt: null,
         lastTransitionAt: now,
       };
 
@@ -129,7 +119,7 @@ export function recoverTimer(
   settings: UserSettings,
   now = Date.now(),
 ): TimerState {
-  if (state.status === "paused" || state.status === "prompt_ready") return state;
+  if (state.status === "paused") return state;
 
   if (state.status === "break_active") {
     const completionAt = (state.activeBreakStartedAt ?? now) + settings.breakDurationSeconds * 1000;

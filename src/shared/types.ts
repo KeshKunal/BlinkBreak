@@ -3,7 +3,6 @@ export type TimerStatus =
   | "break_due"
   | "evaluating"
   | "waiting_for_pause"
-  | "prompt_ready"
   | "break_active"
   | "deferred"
   | "paused";

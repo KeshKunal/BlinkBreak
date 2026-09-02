@@ -5,7 +5,6 @@ import {
   CirclePause,
   CirclePlay,
   Settings,
-  Sparkles,
 } from "lucide-react";
 import { Brand } from "../shared/components/Brand";
 import { Button } from "../shared/components/Button";
@@ -30,8 +29,7 @@ function timerLabel(timer: TimerState): string {
   switch (timer.status) {
     case "paused":
       return "TIME HELD";
-    case "prompt_ready":
-      return "BREAK READY";
+
     default:
       return "NEXT BREAK";
   }
@@ -129,32 +127,28 @@ export function App() {
 
       <div className="primary-actions">
         <Button
-          variant={state.timer.status === "prompt_ready" ? "primary" : "secondary"}
+          variant="secondary"
           disabled={pending !== null}
           onClick={() =>
             void act(
-              state.timer.status === "paused" ? "resume" : state.timer.status === "prompt_ready" ? "start" : "pause",
+              state.timer.status === "paused" ? "resume" : "pause",
               state.timer.status === "paused"
                 ? { type: "RESUME_TIMER" }
-                : state.timer.status === "prompt_ready"
-                  ? { type: "START_BREAK" }
-                  : { type: "PAUSE_TIMER" },
+                : { type: "PAUSE_TIMER" },
             )
           }
         >
-          {state.timer.status === "paused" ? <CirclePlay /> : state.timer.status === "prompt_ready" ? <Sparkles /> : <CirclePause />}
-          {state.timer.status === "paused" ? "Resume" : state.timer.status === "prompt_ready" ? "Take break" : "Pause"}
+          {state.timer.status === "paused" ? <CirclePlay /> : <CirclePause />}
+          {state.timer.status === "paused" ? "Resume" : "Pause"}
         </Button>
-        {state.timer.status !== "prompt_ready" && (
-          <Button
-            variant="ghost"
-            disabled={pending !== null}
-            onClick={() => void act("start", { type: "TAKE_BREAK_NOW" })}
-          >
-            Take a break now
-            <ArrowRight />
-          </Button>
-        )}
+        <Button
+          variant="ghost"
+          disabled={pending !== null}
+          onClick={() => void act("start", { type: "TAKE_BREAK_NOW" })}
+        >
+          Take a break now
+          <ArrowRight />
+        </Button>
       </div>
     </main>
   );

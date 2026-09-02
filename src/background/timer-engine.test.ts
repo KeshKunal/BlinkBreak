@@ -53,8 +53,7 @@ describe("timer engine", () => {
       DEFAULT_SETTINGS,
       now + 15 * MINUTE_MS,
     );
-    const prompt = transitionTimer(due, { type: "PROMPT" }, DEFAULT_SETTINGS, now);
-    const active = transitionTimer(prompt, { type: "START_BREAK" }, DEFAULT_SETTINGS, now);
+    const active = transitionTimer(due, { type: "START_BREAK" }, DEFAULT_SETTINGS, now);
     const complete = transitionTimer(active, { type: "COMPLETE" }, DEFAULT_SETTINGS, now + 20_000);
 
     expect(complete.status).toBe("counting");
