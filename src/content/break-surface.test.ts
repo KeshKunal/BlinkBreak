@@ -94,7 +94,7 @@ describe("break surface rendering", () => {
   it("clears delayed focus work when dismissed", () => {
     const surface = new BreakSurface();
     surface.showPrompt(activeState());
-    expect(vi.getTimerCount()).toBe(1);
+    expect(vi.getTimerCount()).toBe(2);
     surface.hide();
     expect(vi.getTimerCount()).toBe(0);
   });

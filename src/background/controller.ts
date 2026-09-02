@@ -13,6 +13,7 @@ import {
 } from "../shared/storage";
 import type { ActivitySnapshot, AppSnapshot, TimerState } from "../shared/types";
 import { sanitizeSettings } from "../shared/validation";
+import { isHighPriorityUrl } from "../shared/high-priority-sites";
 import { ContentBridge } from "./content-bridge";
 import { assessInterruption } from "./interruption-engine";
 import {
@@ -274,15 +275,31 @@ export class BlinkBreakController {
     }
 
     state.timer = transitionTimer(state.timer, { type: "DUE" }, state.settings, now);
+
+    const [activeTab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true }).catch(() => []);
+    const isProtectedSite = isHighPriorityUrl(activeTab?.url);
+
     const snapshot =
       suppliedSnapshot === undefined ? await this.content.getActiveSnapshot() : suppliedSnapshot;
     const assessment = assessInterruption(snapshot, state.settings.sensitivity, now);
 
-    if (!state.settings.smartInterruptionEnabled || assessment.risk === "low") {
-      state.timer = transitionTimer(state.timer, { type: "PROMPT" }, state.settings, now);
+    if (isProtectedSite || (snapshot && (snapshot.isHighPrioritySite || snapshot.workType === "meeting"))) {
+      state.timer = transitionTimer(
+        state.timer,
+        { type: "WAIT_FOR_PAUSE", delayMs: 300_000 },
+        state.settings,
+        now,
+      );
       await saveTimer(state.timer);
       await this.syncRuntime(state);
-      await this.content.showOnActiveTab(state);
+      return;
+    }
+
+    if (!state.settings.smartInterruptionEnabled || assessment.risk === "low") {
+      state.timer = transitionTimer(state.timer, { type: "START_BREAK" }, state.settings, now);
+      await saveTimer(state.timer);
+      await this.syncRuntime(state);
+      await this.content.showOnActiveTab(state, true);
       return;
     }
 

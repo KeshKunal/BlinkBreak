@@ -1,5 +1,6 @@
 import { hasExtensionContext, sendRequest } from "../shared/messages";
 import type { ActivitySnapshot } from "../shared/types";
+import { isHighPriorityDomain, isHighPriorityUrl } from "../shared/high-priority-sites";
 
 type ActivityKind = "keyboard" | "pointer" | "scroll" | "click";
 
@@ -102,6 +103,18 @@ export class ActivityTracker {
 
   snapshot(now = Date.now()): ActivitySnapshot {
     const cutoff = now - 30_000;
+    const isProtected =
+      isHighPriorityUrl(window.location.href) || isHighPriorityDomain(window.location.hostname);
+    const kbdCount = this.keyboardTimes.countSince(cutoff);
+    const intCount = this.interactionTimes.countSince(cutoff);
+    const workType: ActivitySnapshot["workType"] = isProtected
+      ? "meeting"
+      : kbdCount >= 8
+        ? "coding_flow"
+        : intCount > 0
+          ? "reading_browsing"
+          : "idle";
+
     return {
       capturedAt: now,
       pageLoadedAt: this.startedAt,
@@ -110,12 +123,14 @@ export class ActivityTracker {
       lastPointerAt: this.lastPointerAt,
       lastScrollAt: this.lastScrollAt,
       lastClickAt: this.lastClickAt,
-      interactionsIn30Seconds: this.interactionTimes.countSince(cutoff),
-      keyboardEventsIn30Seconds: this.keyboardTimes.countSince(cutoff),
+      interactionsIn30Seconds: intCount,
+      keyboardEventsIn30Seconds: kbdCount,
       pageVisible: document.visibilityState === "visible",
       windowFocused: document.hasFocus(),
       fullscreen: document.fullscreenElement !== null,
       mediaPlaying: this.hasPlayingMedia(),
+      isHighPrioritySite: isProtected,
+      workType,
     };
   }
 

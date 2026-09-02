@@ -99,4 +99,14 @@ describe("interruption engine", () => {
   it("degrades safely when a restricted page has no activity signal", () => {
     expect(assessInterruption(null, "balanced", now).risk).toBe("low");
   });
+
+  it("prohibits break popups on high-priority sites like Zoom and Meet", () => {
+    const result = assessInterruption(
+      snapshot({ isHighPrioritySite: true }),
+      "balanced",
+      now,
+    );
+    expect(result.risk).toBe("high");
+    expect(result.reasons[0]).toContain("High-priority site active");
+  });
 });

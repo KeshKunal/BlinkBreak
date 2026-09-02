@@ -40,15 +40,7 @@ export class BreakSurface {
   private activeBreakStartedAt: number | null = null;
 
   showPrompt(state: AppSnapshot): void {
-    if (this.host && this.view === "prompt") {
-      this.state = state;
-      return;
-    }
-    this.completed = false;
-    if (!this.host) this.mount();
-    this.state = state;
-    this.view = "prompt";
-    this.renderPrompt();
+    this.showActive(state, true);
   }
 
   showActive(state: AppSnapshot, playSound = false): void {
@@ -180,9 +172,9 @@ export class BreakSurface {
     wrapper.hidden = true;
     wrapper.setAttribute("aria-label", "Delay this break");
     for (const [label, minutes] of [
-      ["1 min", 1],
       ["5 min", 5],
       ["10 min", 10],
+      ["15 min", 15],
     ] as const) {
       const choice = element("button", "choice", label);
       choice.type = "button";
@@ -191,7 +183,7 @@ export class BreakSurface {
     }
     const pauseChoice = element("button", "choice choice-wide", "Wait for another pause");
     pauseChoice.type = "button";
-    pauseChoice.addEventListener("click", () => void this.defer(1));
+    pauseChoice.addEventListener("click", () => void this.defer(5));
     wrapper.append(pauseChoice);
     return wrapper;
   }
@@ -226,10 +218,24 @@ export class BreakSurface {
     blinkGuide.setAttribute("aria-label", "Blink slowly five times");
     const blinkMarks = Array.from({ length: 5 }, () => element("span", "blink-mark"));
     blinkGuide.append(...blinkMarks);
+
+    const actionRow = element("div", "active-actions");
     const finish = element("button", "text-button", "Finish early");
     finish.type = "button";
     finish.addEventListener("click", () => void this.finishBreak());
-    content.append(breathing, eyebrow, title, guide, timer, blinkGuide, finish);
+    const doLater = element("button", "text-button", "Do later");
+    doLater.type = "button";
+    doLater.setAttribute("aria-expanded", "false");
+    const deferChoices = this.createDeferralChoices();
+    doLater.addEventListener("click", () => {
+      const open = deferChoices.hidden;
+      deferChoices.hidden = !open;
+      doLater.setAttribute("aria-expanded", String(open));
+      if (open) deferChoices.querySelector<HTMLButtonElement>("button")?.focus();
+    });
+
+    actionRow.append(finish, doLater);
+    content.append(breathing, eyebrow, title, guide, timer, blinkGuide, actionRow, deferChoices);
 
     const duration = this.state.settings.breakDurationSeconds;
     const startedAt = this.state.timer.activeBreakStartedAt ?? Date.now();
@@ -481,6 +487,7 @@ const SURFACE_STYLES = `
   .blink-guide { display: flex; height: 18px; align-items: center; gap: 8px; margin-bottom: 18px; }
   .blink-mark { display: block; width: 16px; height: 2px; border-radius: 999px; background: var(--border); transition: background 280ms ease, transform 280ms ease; }
   .blink-mark.done { background: var(--success); transform: scaleX(.75); }
+  .active-actions { display: flex; gap: 12px; align-items: center; justify-content: center; width: 100%; margin-top: 4px; }
   .text-button { min-height: 34px; color: var(--muted); background: transparent; padding: 0 10px; font-weight: 580; }
   .text-button:hover { color: var(--text); }
   .complete-backdrop { animation: bb-fade-in 160ms ease-out both, bb-fade-out 180ms 1.32s ease-in forwards; }

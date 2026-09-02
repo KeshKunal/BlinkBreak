@@ -24,6 +24,15 @@ export function assessInterruption(
     };
   }
 
+  if (snapshot.isHighPrioritySite || snapshot.workType === "meeting") {
+    return {
+      score: 100,
+      risk: "high",
+      reasons: ["High-priority site active (Meeting / Video Call / Presentation)"],
+      nextEvaluationMs: 300_000,
+    };
+  }
+
   let score = 0;
   const reasons: string[] = [];
   const keyboardAge = Math.max(0, now - snapshot.lastKeyboardAt);

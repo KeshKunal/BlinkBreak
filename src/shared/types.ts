@@ -62,6 +62,8 @@ export interface ActivitySnapshot {
   windowFocused: boolean;
   fullscreen: boolean;
   mediaPlaying: boolean;
+  isHighPrioritySite?: boolean;
+  workType?: "meeting" | "coding_flow" | "reading_browsing" | "idle";
 }
 
 export type InterruptionRisk = "low" | "medium" | "high";
