@@ -1,4 +1,5 @@
 import { isActivitySnapshot, type ContentCommand } from "../shared/messages";
+import { SITE_ACCESS } from "../shared/site-access";
 import { loadAppSnapshot } from "../shared/storage";
 import type { ActivitySnapshot, AppSnapshot } from "../shared/types";
 
@@ -39,8 +40,18 @@ export class ContentBridge {
   }
 
   async showOnActiveTab(state?: AppSnapshot, playSound = false): Promise<void> {
-    const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
-    if (tab?.id !== undefined) await this.showOnTab(tab.id, state, playSound);
+    let [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+    if (tab?.id === undefined) {
+      [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    }
+    if (tab?.id === undefined) {
+      const tabs = await chrome.tabs.query({ active: true });
+      tab = tabs.find((t) => t.url && !t.url.startsWith("chrome-extension://"));
+    }
+    if (tab?.id !== undefined) {
+      await this.ensureOnTab(tab.id);
+      await this.showOnTab(tab.id, state, playSound);
+    }
   }
 
   async showOnTab(tabId: number, state?: AppSnapshot, playSound = false): Promise<void> {
@@ -54,7 +65,17 @@ export class ContentBridge {
     try {
       await chrome.tabs.sendMessage(tabId, command);
     } catch {
-      // Browser-owned and extension-store pages intentionally reject content scripts.
+      if (this.hasSiteAccess) {
+        try {
+          await chrome.scripting.executeScript({
+            target: { tabId },
+            files: ["content.js"],
+          });
+          await chrome.tabs.sendMessage(tabId, command);
+        } catch {
+          // Browser-owned or restricted page
+        }
+      }
     }
   }
 
@@ -80,12 +101,12 @@ export class ContentBridge {
         enabled,
       } satisfies ContentCommand);
     } catch {
-      // The active tab may not have optional site access or a content context.
+      // Tab may be restricted or content script not ready.
     }
   }
 
   async ensureOnTab(tabId: number): Promise<void> {
-    if (!this.hasSiteAccess || this.knownTabs.has(tabId)) return;
+    if (!this.hasSiteAccess) return;
     try {
       const response = await chrome.tabs.sendMessage(
         tabId,
@@ -96,16 +117,9 @@ export class ContentBridge {
         return;
       }
     } catch {
-      // Missing or invalidated content contexts are replaced below.
+      // Context not ready
     }
-    try {
-      await chrome.tabs.sendMessage(tabId, {
-        type: "SET_ACTIVITY_TRACKING",
-        enabled: false,
-      } satisfies ContentCommand);
-    } catch {
-      // An invalidated legacy runtime may no longer accept cleanup messages.
-    }
+
     try {
       await chrome.scripting.executeScript({
         target: { tabId },
@@ -113,15 +127,12 @@ export class ContentBridge {
       });
       this.knownTabs.add(tabId);
     } catch {
-      // Browser-owned, file, and extension-store pages correctly reject injection.
+      // Restricted page
     }
   }
 
   async syncRegistration(): Promise<void> {
-    const hasAccess = await chrome.permissions.contains({
-      permissions: ["scripting"],
-      origins: ["http://*/*", "https://*/*"],
-    });
+    const hasAccess = await chrome.permissions.contains(SITE_ACCESS).catch(() => false);
     const registered = await chrome.scripting
       ?.getRegisteredContentScripts({ ids: [CONTENT_SCRIPT_ID] })
       .catch(() => []);
@@ -162,7 +173,7 @@ export class ContentBridge {
               enabled,
             } satisfies ContentCommand);
           } catch {
-            // The tab either lacks optional site access or has not loaded the script yet.
+            // Tab has not loaded the script yet or is restricted.
           }
         }),
       );

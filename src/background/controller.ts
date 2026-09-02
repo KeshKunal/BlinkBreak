@@ -191,7 +191,7 @@ export class BlinkBreakController {
         state.timer = transitionTimer(state.timer, { type: "DUE" }, state.settings);
         state.timer = transitionTimer(state.timer, { type: "PROMPT" }, state.settings);
         state.timer = transitionTimer(state.timer, { type: "START_BREAK" }, state.settings);
-        await saveTimer(state.timer);
+        await saveAppSnapshot(state);
         await this.syncRuntime(state);
         await this.content.showOnActiveTab(state);
         return { ok: true, state };

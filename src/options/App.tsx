@@ -27,6 +27,8 @@ import type {
 } from "../shared/types";
 import { usePageVisibilityLifecycle } from "../shared/use-page-visibility";
 
+import { loadAppSnapshot } from "../shared/storage";
+
 type SaveState = "idle" | "saving" | "saved" | "error";
 
 export function App() {
@@ -40,18 +42,42 @@ export function App() {
   const animationPreference = state?.settings.animationPreference;
 
   const load = useCallback(async () => {
-    const [response, access] = await Promise.all([
-      sendRequest({ type: "GET_APP_STATE" }),
-      hasSiteAccess(),
-    ]);
-    if (response.ok && response.state) setState(response.state);
+    const access = await hasSiteAccess().catch(() => false);
     setSiteAccess(access);
+    try {
+      const response = await sendRequest({ type: "GET_APP_STATE" }).catch(() => null);
+      if (response?.ok && response?.state) {
+        setState(response.state);
+        return;
+      }
+    } catch {
+      // Background message optional failure handler
+    }
+    const fallback = await loadAppSnapshot().catch(() => null);
+    if (fallback) setState(fallback);
   }, []);
 
   useEffect(() => {
     const initial = window.setTimeout(() => void load(), 0);
+    const onStorage = (
+      changes: Record<string, chrome.storage.StorageChange>,
+      areaName: string,
+    ) => {
+      if (
+        areaName === "local" &&
+        ["settings", "timer", "stats"].some((key) => Object.hasOwn(changes, key))
+      ) {
+        void load().catch(() => undefined);
+      }
+    };
+    if (typeof chrome !== "undefined" && chrome.storage?.onChanged) {
+      chrome.storage.onChanged.addListener(onStorage);
+    }
     return () => {
       window.clearTimeout(initial);
+      if (typeof chrome !== "undefined" && chrome.storage?.onChanged) {
+        chrome.storage.onChanged.removeListener(onStorage);
+      }
       if (saveResetTimer.current !== undefined) window.clearTimeout(saveResetTimer.current);
     };
   }, [load]);

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import {
   ArrowRight,
+  Check,
   CirclePause,
   CirclePlay,
   Settings,
@@ -107,8 +108,7 @@ export function App() {
   }
 
   if (state.timer.status === "break_active") {
-    window.close();
-    return null;
+    return <PopupBreakActive state={state} onState={setState} />;
   }
 
   return (
@@ -149,15 +149,87 @@ export function App() {
           <Button
             variant="ghost"
             disabled={pending !== null}
-            onClick={() => {
-              window.close();
-              void sendRequest({ type: "TAKE_BREAK_NOW" });
-            }}
+            onClick={() => void act("start", { type: "TAKE_BREAK_NOW" })}
           >
             Take a break now
             <ArrowRight />
           </Button>
         )}
+      </div>
+    </main>
+  );
+}
+
+function PopupBreakActive({ state, onState }: { state: AppSnapshot; onState: (state: AppSnapshot) => void }) {
+  const [pending, setPending] = useState(false);
+  const now = useTimestampClock(true);
+  const startedAt = state.timer.activeBreakStartedAt ?? now;
+  const elapsedSeconds = Math.max(0, (now - startedAt) / 1_000);
+  const remaining = Math.max(0, state.settings.breakDurationSeconds - elapsedSeconds);
+
+  const finish = useCallback(async () => {
+    if (pending) return;
+    setPending(true);
+    try {
+      const response = await sendRequest({
+        type: "COMPLETE_BREAK",
+        elapsedSeconds: Math.round(elapsedSeconds),
+      });
+      if (response.ok && response.state) {
+        onState(response.state);
+      }
+    } finally {
+      setPending(false);
+    }
+  }, [elapsedSeconds, onState, pending]);
+
+  useEffect(() => {
+    if (remaining <= 0) {
+      void finish();
+    }
+  }, [finish, remaining]);
+
+  const duration = state.settings.breakDurationSeconds;
+  const progress = duration > 0 ? Math.min(1, Math.max(0, remaining / duration)) : 0;
+  const radius = 84;
+  const circumference = 2 * Math.PI * radius;
+
+  return (
+    <main className="popup">
+      <header className="popup-header">
+        <Brand />
+      </header>
+
+      <section className="timer-section" aria-labelledby="active-break-heading">
+        <div className="timer-ring">
+          <svg viewBox="0 0 196 196" aria-hidden="true">
+            <circle className="ring-track" cx="98" cy="98" r={radius} />
+            <circle
+              className="ring-progress"
+              cx="98"
+              cy="98"
+              r={radius}
+              style={{
+                strokeDasharray: circumference,
+                strokeDashoffset: circumference * (1 - progress),
+              }}
+            />
+          </svg>
+          <div className="timer-center">
+            <span className="timer-label" id="active-break-heading">
+              REST YOUR EYES
+            </span>
+            <strong className="countdown" role="timer">
+              {formatCountdown(remaining * 1_000)}
+            </strong>
+          </div>
+        </div>
+      </section>
+
+      <div className="primary-actions">
+        <Button variant="primary" disabled={pending} onClick={() => void finish()}>
+          <Check /> Finish break
+        </Button>
       </div>
     </main>
   );
