@@ -143,6 +143,14 @@ export function sanitizeTimer(
         : finiteNumber(source.remainingWhenPausedMs, 0, 0, 120 * 60_000),
     consecutiveDeferrals: Math.round(finiteNumber(source.consecutiveDeferrals, 0, 0, 99)),
     lastTransitionAt,
+    maxDeferralStartedAt:
+      source.maxDeferralStartedAt === null || source.maxDeferralStartedAt === undefined
+        ? null
+        : timestamp(source.maxDeferralStartedAt, now),
+    returnGraceExpirationAt:
+      source.returnGraceExpirationAt === null || source.returnGraceExpirationAt === undefined
+        ? null
+        : timestamp(source.returnGraceExpirationAt, now),
     // Exposure tracking
     exposureAccumulatedMs,
     exposureGoalMs,

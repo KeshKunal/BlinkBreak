@@ -208,7 +208,7 @@ export class ActivityTracker {
   };
 
   private onMediaPlaying = (event: Event): void => {
-    if (event.target instanceof HTMLMediaElement) {
+    if (event.target instanceof HTMLMediaElement && !(event.target instanceof HTMLAudioElement)) {
       const alreadyTracked = this.prunePlayingMedia(event.target);
       if (!alreadyTracked) this.playingMedia.add(new WeakRef(event.target));
     }
@@ -216,7 +216,9 @@ export class ActivityTracker {
   };
 
   private onMediaStopped = (event: Event): void => {
-    if (event.target instanceof HTMLMediaElement) this.removeMedia(event.target);
+    if (event.target instanceof HTMLMediaElement && !(event.target instanceof HTMLAudioElement)) {
+      this.removeMedia(event.target);
+    }
     if (this.reportingEnabled) this.emit();
   };
 

@@ -38,6 +38,8 @@ export function createDefaultTimer(
     remainingWhenPausedMs: null,
     consecutiveDeferrals: 0,
     lastTransitionAt: now,
+    maxDeferralStartedAt: null,
+    returnGraceExpirationAt: null,
     // Exposure tracking
     exposureAccumulatedMs: 0,
     exposureGoalMs: goalMs,

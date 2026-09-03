@@ -38,6 +38,8 @@ export interface TimerState {
   remainingWhenPausedMs: number | null;
   consecutiveDeferrals: number;
   lastTransitionAt: number;
+  maxDeferralStartedAt: number | null;
+  returnGraceExpirationAt: number | null;
 
   // --- Exposure tracking (presence-aware) ---
   /** Meaningful screen time accumulated toward the current break interval (ms). */
@@ -158,4 +160,5 @@ export interface DiagnosticSummary {
   isBackgroundHealthy: boolean;
   exposureAccumulatedMs: number;
   exposureGoalMs: number;
+  decisionTrace: InterruptionDecision[];
 }

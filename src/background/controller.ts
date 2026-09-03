@@ -195,7 +195,15 @@ export class BlinkBreakController {
             state.timer.lastPresenceConfirmedAt,
             message.snapshot,
           );
-          const decision = assessInterruption({ presence, context, snapshot: message.snapshot, sensitivity: state.settings.sensitivity });
+          const decision = assessInterruption({ 
+            presence, 
+            context, 
+            snapshot: message.snapshot, 
+            sensitivity: state.settings.sensitivity,
+            maxDeferralStartedAt: state.timer.maxDeferralStartedAt,
+            returnGraceExpirationAt: state.timer.returnGraceExpirationAt
+          });
+          this.diagnostics.recordDecision(decision);
           if (decision.action === "show_break") {
             await this.evaluateDueBreak(message.snapshot, state);
           }
@@ -407,9 +415,17 @@ export class BlinkBreakController {
 
     // --- Step 6: Interruption decision ---
     const decision = assessInterruption(
-      { presence, context, snapshot, sensitivity: state.settings.sensitivity },
+      { 
+        presence, 
+        context, 
+        snapshot, 
+        sensitivity: state.settings.sensitivity,
+        maxDeferralStartedAt: state.timer.maxDeferralStartedAt,
+        returnGraceExpirationAt: state.timer.returnGraceExpirationAt
+      },
       now,
     );
+    this.diagnostics.recordDecision(decision);
 
     switch (decision.action) {
       case "session_reset":

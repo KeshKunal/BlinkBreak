@@ -5,10 +5,9 @@ import {
   DEFAULT_SETTINGS,
   MINUTE_MS,
 } from "../shared/defaults";
-import { ABSENCE_THRESHOLD_MS, LONG_ABSENCE_THRESHOLD_MS } from "../shared/presence-detector";
+import { ABSENCE_THRESHOLD_MS, LONG_ABSENCE_THRESHOLD_MS } from "../shared/heuristics";
 import {
   classifyGap,
-  completeBreakInSnapshot,
   recoverAppSnapshot,
   recoverTimer,
   transitionTimer,

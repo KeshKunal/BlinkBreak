@@ -1,10 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { detectPresence, ABSENCE_THRESHOLD_MS, LONG_ABSENCE_THRESHOLD_MS, isAbsence, isLongAbsence } from "../shared/presence-detector";
+import { detectPresence, isAbsence, isLongAbsence } from "../shared/presence-detector";
+import { ABSENCE_THRESHOLD_MS, LONG_ABSENCE_THRESHOLD_MS } from "../shared/heuristics";
 import type { ActivitySnapshot } from "../shared/types";
 
 const now = 1_800_000_000_000;
 
-function makeSnapshot(lastInteractionAt: number): ActivitySnapshot {
+function makeSnapshot(lastInteractionAt: number, overrides: Partial<ActivitySnapshot> = {}): ActivitySnapshot {
   return {
     capturedAt: now,
     pageLoadedAt: now - 60_000,
@@ -19,6 +20,7 @@ function makeSnapshot(lastInteractionAt: number): ActivitySnapshot {
     windowFocused: true,
     fullscreen: false,
     mediaPlaying: false,
+    ...overrides,
   };
 }
 
@@ -41,7 +43,7 @@ describe("presence-detector", () => {
     });
 
     it("returns absent when snapshot shows interaction past threshold", () => {
-      const snapshot = makeSnapshot(now - ABSENCE_THRESHOLD_MS - 1);
+      const snapshot = makeSnapshot(now - ABSENCE_THRESHOLD_MS - 1, { pageVisible: false });
       const verdict = detectPresence(now, now - ABSENCE_THRESHOLD_MS - 1, now - ABSENCE_THRESHOLD_MS - 1, snapshot);
       expect(verdict).toBe("absent");
     });

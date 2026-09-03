@@ -15,13 +15,12 @@
  * This module is side-effect-free and can run in any extension context.
  */
 
+import { 
+  ABSENCE_THRESHOLD_MS, 
+  LONG_ABSENCE_THRESHOLD_MS, 
+  PASSIVE_READING_EXTENSION_MS 
+} from "./heuristics";
 import type { ActivitySnapshot, PresenceVerdict } from "./types";
-
-/** No user interaction for this long → user is absent. */
-export const ABSENCE_THRESHOLD_MS = 10 * 60_000; // 10 minutes
-
-/** Absence longer than this → session reset instead of resuming. */
-export const LONG_ABSENCE_THRESHOLD_MS = 2 * 60 * 60_000; // 2 hours
 
 /**
  * Determine the user's presence based on the elapsed gap since the last
@@ -51,6 +50,13 @@ export function detectPresence(
     if (timeSinceInteraction < ABSENCE_THRESHOLD_MS) {
       // Recent interaction → present.
       return "present";
+    }
+
+    // Check for passive reading (visible and focused, even if no direct interaction)
+    if (snapshot.pageVisible && snapshot.windowFocused) {
+      if (timeSinceInteraction < ABSENCE_THRESHOLD_MS + PASSIVE_READING_EXTENSION_MS) {
+        return "present";
+      }
     }
 
     // No recent interaction, but not a long absence either.

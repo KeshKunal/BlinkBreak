@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { computeExposureUpdate, isExposureDue } from "../background/exposure-tracker";
 import { createDefaultTimer, DEFAULT_SETTINGS, MINUTE_MS } from "../shared/defaults";
-import { ABSENCE_THRESHOLD_MS, LONG_ABSENCE_THRESHOLD_MS } from "../shared/presence-detector";
+import { LONG_ABSENCE_THRESHOLD_MS } from "../shared/heuristics";
 
 const now = 1_800_000_000_000;
 const settings = DEFAULT_SETTINGS;

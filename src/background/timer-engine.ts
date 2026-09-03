@@ -13,7 +13,13 @@
  */
 
 import { MINUTE_MS, createDefaultTimer } from "../shared/defaults";
-import { LONG_ABSENCE_THRESHOLD_MS, ABSENCE_THRESHOLD_MS } from "../shared/presence-detector";
+import { 
+  ABSENCE_THRESHOLD_MS, 
+  LONG_ABSENCE_THRESHOLD_MS,
+  RETURN_GRACE_MIN_MS,
+  RETURN_GRACE_MAX_MS
+} from "../shared/heuristics";
+
 import type { AppSnapshot, PresenceVerdict, TimerState, UserSettings } from "../shared/types";
 import type { ExposureUpdate } from "./exposure-tracker";
 
@@ -50,8 +56,9 @@ export function transitionTimer(
       return {
         ...state,
         status: "waiting_for_pause",
-        nextEvaluationAt: now + Math.max(30_000, event.delayMs),
+        nextEvaluationAt: now + Math.max(10_000, event.delayMs), // Cooldowns
         lastTransitionAt: now,
+        maxDeferralStartedAt: state.maxDeferralStartedAt ?? now,
       };
 
     case "START_BREAK":
@@ -62,6 +69,8 @@ export function transitionTimer(
         activeBreakStartedAt: now,
         nextEvaluationAt: null,
         lastTransitionAt: now,
+        maxDeferralStartedAt: null,
+        returnGraceExpirationAt: null,
       };
 
     case "DEFER": {
@@ -77,6 +86,8 @@ export function transitionTimer(
         activeBreakStartedAt: null,
         consecutiveDeferrals: state.consecutiveDeferrals + 1,
         lastTransitionAt: now,
+        maxDeferralStartedAt: null,
+        returnGraceExpirationAt: null,
         // Reset exposure so the deferred interval counts fresh time.
         exposureAccumulatedMs: 0,
         exposureGoalMs: goalMs,
@@ -135,6 +146,8 @@ export function transitionTimer(
         exposureLastSampledAt: now,
         lastPresenceConfirmedAt: now,
         presenceState: "unknown",
+        maxDeferralStartedAt: null,
+        returnGraceExpirationAt: null,
       };
 
     case "INTERVAL_CHANGED":
@@ -208,12 +221,21 @@ export function recoverTimer(
   // Regular absence: push the deadline forward so the break is not immediately due.
   if (gap >= ABSENCE_THRESHOLD_MS) {
     const remaining = Math.max(0, state.exposureGoalMs - state.exposureAccumulatedMs);
+    
+    // For 30 min-2 hr absence, use a short 30-60 second return grace period.
+    let grace = 0;
+    if (gap >= 30 * 60_000) {
+       const fraction = Math.min(1, Math.max(0, (gap - 30 * 60_000) / (LONG_ABSENCE_THRESHOLD_MS - 30 * 60_000)));
+       grace = RETURN_GRACE_MIN_MS + fraction * (RETURN_GRACE_MAX_MS - RETURN_GRACE_MIN_MS);
+    }
+    
     return {
       ...state,
       nextBreakDueAt: now + remaining,
       exposureLastSampledAt: now,
       presenceState: "absent",
       lastTransitionAt: now,
+      returnGraceExpirationAt: grace > 0 ? now + grace : state.returnGraceExpirationAt,
     };
   }
 

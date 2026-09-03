@@ -16,6 +16,7 @@ import type {
   PageAccessibility,
   PresenceVerdict,
   TimerState,
+  InterruptionDecision,
 } from "../shared/types";
 
 const RING_SIZE = 50;
@@ -55,6 +56,7 @@ interface TabRecord {
 
 export class DiagnosticsCollector {
   private ring: DiagnosticEvent[] = [];
+  private decisionTrace: InterruptionDecision[] = [];
   private tabRecords = new Map<number, TabRecord>();
   private activeTabId: number | undefined;
   private lastPresenceVerdict: PresenceVerdict = "unknown";
@@ -66,6 +68,13 @@ export class DiagnosticsCollector {
     this.ring.push(event);
     if (this.ring.length > RING_SIZE) {
       this.ring.shift();
+    }
+  }
+
+  recordDecision(decision: InterruptionDecision): void {
+    this.decisionTrace.push(decision);
+    if (this.decisionTrace.length > 10) {
+      this.decisionTrace.shift();
     }
   }
 
@@ -122,6 +131,7 @@ export class DiagnosticsCollector {
       isBackgroundHealthy: this.healthy,
       exposureAccumulatedMs: this.timerRef?.exposureAccumulatedMs ?? 0,
       exposureGoalMs: this.timerRef?.exposureGoalMs ?? 0,
+      decisionTrace: [...this.decisionTrace],
     };
   }
 }

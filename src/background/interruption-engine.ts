@@ -18,6 +18,8 @@ import type {
   PresenceVerdict,
   Sensitivity,
 } from "../shared/types";
+import { MAX_DEFERRAL_MS, PAUSE_CONFIRMATION_MS } from "../shared/heuristics";
+
 
 const THRESHOLDS: Record<Sensitivity, { medium: number; high: number }> = {
   low:      { medium: 38, high: 76 },
@@ -30,7 +32,10 @@ export interface InterruptionInput {
   context: ContextVerdict;
   snapshot: ActivitySnapshot | null;
   sensitivity: Sensitivity;
+  maxDeferralStartedAt?: number | null;
+  returnGraceExpirationAt?: number | null;
 }
+
 
 /**
  * Assess whether a break should be presented now, deferred, or skipped.
@@ -58,6 +63,15 @@ export function assessInterruption(
       action: "defer_absence",
       reason: "User absent; deferring break",
       nextEvaluationMs: 60_000,
+    };
+  }
+
+  // --- Returning grace gate ---
+  if (input.returnGraceExpirationAt !== undefined && input.returnGraceExpirationAt !== null && now < input.returnGraceExpirationAt) {
+    return {
+      action: "wait_for_context",
+      reason: "Returning from absence; granting grace period",
+      nextEvaluationMs: Math.max(1_000, input.returnGraceExpirationAt - now),
     };
   }
 
@@ -119,10 +133,36 @@ export function assessInterruption(
 
   const { score, risk, reasons, nextEvaluationMs } = scoreActivity(snapshot, sensitivity, now);
 
+  const maxDeferralReached =
+    input.maxDeferralStartedAt !== undefined &&
+    input.maxDeferralStartedAt !== null &&
+    (now - input.maxDeferralStartedAt >= MAX_DEFERRAL_MS);
+
   if (risk === "low") {
+    // Check pause confirmation window
+    const interactionAge = Math.max(0, now - snapshot.lastInteractionAt);
+    if (interactionAge < PAUSE_CONFIRMATION_MS && !maxDeferralReached) {
+      return {
+        action: "wait_for_pause",
+        reason: "Waiting to confirm natural pause",
+        nextEvaluationMs: Math.max(2_000, PAUSE_CONFIRMATION_MS - interactionAge),
+        score,
+      };
+    }
+
     return {
       action: "show_break",
       reason: reasons.join("; "),
+      nextEvaluationMs: 0,
+      score,
+    };
+  }
+
+  // If activity risk is high but we've waited too long, force the break
+  if (maxDeferralReached) {
+    return {
+      action: "show_break",
+      reason: "Maximum deferral limit reached; forcing break",
       nextEvaluationMs: 0,
       score,
     };
@@ -197,7 +237,7 @@ function scoreActivity(
     score += 20; reasons.push("Active interaction");
   } else if (interactionAge <= 7_000) {
     score += 13;
-  } else if (interactionAge >= 15_000 && !snapshot.mediaPlaying && !snapshot.fullscreen) {
+  } else if (interactionAge >= PAUSE_CONFIRMATION_MS && !snapshot.mediaPlaying && !snapshot.fullscreen) {
     score -= 38; reasons.push("Natural pause detected");
   }
 
