@@ -1,25 +1,84 @@
+/**
+ * content-bridge.ts
+ *
+ * Manages optional content-script injection and messaging.
+ *
+ * Key design principles:
+ *   - Classify the URL before attempting injection (no blind scripting.executeScript).
+ *   - Never retry injection on permanently restricted pages.
+ *   - Maintain a TabRecord per injected tab for diagnostics and lifecycle tracking.
+ *   - Return access classification alongside snapshots so callers know WHY data is null.
+ */
+
 import { isActivitySnapshot, type ContentCommand } from "../shared/messages";
+import { classifyUrl, isInjectable } from "../shared/page-access";
 import { SITE_ACCESS } from "../shared/site-access";
 import { loadAppSnapshot } from "../shared/storage";
-import type { ActivitySnapshot, AppSnapshot } from "../shared/types";
+import type { ActivitySnapshot, AppSnapshot, PageAccessibility } from "../shared/types";
+import type { DiagnosticsCollector } from "./diagnostics";
 
 const CONTENT_SCRIPT_ID = "blinkbreak-content";
 
-export class ContentBridge {
-  private knownTabs = new Set<number>();
-  private hasSiteAccess = false;
+export interface TabRecord {
+  instanceId: string;
+  access: PageAccessibility;
+  lastHeartbeatAt: number;
+  connected: boolean;
+}
 
-  noteReady(tabId: number): void {
-    this.knownTabs.add(tabId);
+export interface SnapshotResult {
+  snapshot: ActivitySnapshot | null;
+  access: PageAccessibility;
+}
+
+export class ContentBridge {
+  private knownTabs = new Map<number, TabRecord>();
+  private hasSiteAccess = false;
+  private diagnostics: DiagnosticsCollector | null = null;
+
+  setDiagnostics(d: DiagnosticsCollector): void {
+    this.diagnostics = d;
+  }
+
+  noteReady(tabId: number, instanceId: string, access: PageAccessibility): void {
+    const record: TabRecord = {
+      instanceId,
+      access,
+      lastHeartbeatAt: Date.now(),
+      connected: true,
+    };
+    this.knownTabs.set(tabId, record);
+    this.diagnostics?.noteTabRecord(tabId, record);
+    this.diagnostics?.record({
+      timestamp: Date.now(),
+      kind: "content_hello",
+      tabId,
+      reason: `instance=${instanceId} access=${access}`,
+    });
   }
 
   forgetTab(tabId: number): void {
     this.knownTabs.delete(tabId);
+    this.diagnostics?.forgetTab(tabId);
+    this.diagnostics?.record({ timestamp: Date.now(), kind: "tab_closed", tabId });
   }
 
-  async getActiveSnapshot(): Promise<ActivitySnapshot | null> {
+  getTabRecord(tabId: number): TabRecord | undefined {
+    return this.knownTabs.get(tabId);
+  }
+
+  /**
+   * Get the activity snapshot from the active tab, along with its access class.
+   * Callers should check `access` to understand WHY `snapshot` may be null.
+   */
+  async getActiveSnapshot(): Promise<SnapshotResult> {
     const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
-    if (tab?.id === undefined) return null;
+    if (tab?.id === undefined) return { snapshot: null, access: "unknown" };
+
+    const access = classifyUrl(tab.url);
+    if (!isInjectable(tab.url)) {
+      return { snapshot: null, access };
+    }
 
     let timeoutId: ReturnType<typeof setTimeout> | undefined;
     try {
@@ -29,14 +88,14 @@ export class ContentBridge {
           timeoutId = setTimeout(() => resolve(null), 1_200);
         }),
       ]);
-      if (isActivitySnapshot(response)) return response;
+      if (isActivitySnapshot(response)) return { snapshot: response, access };
     } catch {
-      // Restricted pages cannot host content scripts; use any fresh in-memory signal.
+      // Content script not yet ready on this tab.
     } finally {
       if (timeoutId !== undefined) clearTimeout(timeoutId);
     }
 
-    return null;
+    return { snapshot: null, access };
   }
 
   async showOnActiveTab(state?: AppSnapshot, playSound = false): Promise<void> {
@@ -48,10 +107,10 @@ export class ContentBridge {
     }
     if (tab?.id === undefined) {
       const tabs = await chrome.tabs.query({ active: true });
-      tab = tabs.find((t) => t.url && !t.url.startsWith("chrome-extension://"));
+      tab = tabs.find((t) => t.url && isInjectable(t.url));
     }
     if (tab?.id !== undefined) {
-      await this.ensureOnTab(tab.id);
+      await this.ensureOnTab(tab.id, tab.url);
       await this.showOnTab(tab.id, state, playSound);
     }
   }
@@ -73,7 +132,7 @@ export class ContentBridge {
           });
           await chrome.tabs.sendMessage(tabId, command);
         } catch {
-          // Browser-owned or restricted page
+          // Restricted page or injection failed silently.
         }
       }
     }
@@ -85,7 +144,7 @@ export class ContentBridge {
     try {
       await chrome.tabs.sendMessage(tab.id, { type: "HIDE_BREAK_UI" } satisfies ContentCommand);
     } catch {
-      // No surface exists on restricted pages.
+      // No surface on restricted page — expected.
     }
   }
 
@@ -105,19 +164,40 @@ export class ContentBridge {
     }
   }
 
-  async ensureOnTab(tabId: number): Promise<void> {
+  /**
+   * Ensures the content script is present on a tab.
+   * Classifies the URL first — skips injection entirely for restricted pages.
+   */
+  async ensureOnTab(tabId: number, url?: string | null): Promise<void> {
     if (!this.hasSiteAccess) return;
+
+    const access = classifyUrl(url);
+    if (!isInjectable(url)) {
+      this.diagnostics?.record({
+        timestamp: Date.now(),
+        kind: "injection_skipped",
+        tabId,
+        reason: `access=${access}`,
+      });
+      return;
+    }
+
+    // Check if already connected.
     try {
       const response = await chrome.tabs.sendMessage(
         tabId,
         { type: "PING_CONTENT" } satisfies ContentCommand,
       );
       if (response?.ready === true) {
-        this.knownTabs.add(tabId);
+        const existing = this.knownTabs.get(tabId);
+        if (existing) {
+          existing.lastHeartbeatAt = Date.now();
+          existing.connected = true;
+        }
         return;
       }
     } catch {
-      // Context not ready
+      // Not yet connected — proceed to inject.
     }
 
     try {
@@ -125,9 +205,13 @@ export class ContentBridge {
         target: { tabId },
         files: ["content.js"],
       });
-      this.knownTabs.add(tabId);
     } catch {
-      // Restricted page
+      this.diagnostics?.record({
+        timestamp: Date.now(),
+        kind: "injection_error",
+        tabId,
+        reason: `Injection failed (restricted or unavailable)`,
+      });
     }
   }
 
@@ -173,7 +257,7 @@ export class ContentBridge {
               enabled,
             } satisfies ContentCommand);
           } catch {
-            // Tab has not loaded the script yet or is restricted.
+            // Restricted tab or script not loaded.
           }
         }),
       );
@@ -182,6 +266,6 @@ export class ContentBridge {
 
   private async injectIntoActiveTab(): Promise<void> {
     const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
-    if (tab?.id !== undefined) await this.ensureOnTab(tab.id);
+    if (tab?.id !== undefined) await this.ensureOnTab(tab.id, tab.url);
   }
 }
