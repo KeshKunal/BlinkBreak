@@ -1,6 +1,7 @@
 {
   "name": "blinkbreak",
-  "version": "1.0.0",
+  "version": "1.1.0",
+  "author": "KSquare",
   "private": true,
   "type": "module",
   "description": "A privacy-first adaptive eye-break extension for Chromium browsers.",
@@ -14,7 +15,8 @@
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
     "check": "npm run typecheck && npm run lint && npm run test && npm run build",
-    "icons": "node scripts/generate-icons.mjs"
+    "icons": "node scripts/generate-icons.mjs",
+    "package": "npm run build && node scripts/package-extension.mjs"
   },
   "engines": {
     "node": ">=20"
@@ -32,6 +34,7 @@
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.5",
     "@vitejs/plugin-react": "^6.1.1",
+    "archiver": "^8.0.0",
     "esbuild": "^0.28.2",
     "eslint": "^10.9.1",
     "eslint-plugin-react-hooks": "^7.1.1",

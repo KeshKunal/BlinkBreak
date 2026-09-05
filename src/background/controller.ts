@@ -1,3 +1,19 @@
+/**
+ * controller.ts
+ *
+ * Serialises extension events, persists state transitions, schedules alarms,
+ * and coordinates tabs.
+ *
+ * The four-concept model is orchestrated in evaluateDueBreak():
+ *   1. ExposureTracker  — has enough meaningful screen time accumulated?
+ *   2. PresenceDetector — is the user actually present?
+ *   3. ContextDetector  — is the current moment contextually appropriate?
+ *   4. InterruptionEngine — what should we do right now?
+ *
+ * Content scripts are supplementary. Every code path handles a missing
+ * content script gracefully. The timer never depends on script availability.
+ */
+
 import {
   isExtensionRequest,
   type BackgroundResponse,
@@ -13,8 +29,12 @@ import {
 } from "../shared/storage";
 import type { ActivitySnapshot, AppSnapshot, TimerState } from "../shared/types";
 import { sanitizeSettings } from "../shared/validation";
-import { isHighPriorityUrl } from "../shared/high-priority-sites";
+import { classifyUrl } from "../shared/page-access";
+import { detectPresence } from "../shared/presence-detector";
+import { detectContext } from "../shared/context-detector";
 import { ContentBridge } from "./content-bridge";
+import { DiagnosticsCollector } from "./diagnostics";
+import { computeExposureUpdate, isExposureDue } from "./exposure-tracker";
 import { assessInterruption } from "./interruption-engine";
 import {
   completeBreakInSnapshot,
@@ -26,10 +46,13 @@ const SCHEDULER_ALARM = "blinkbreak-scheduler";
 
 export class BlinkBreakController {
   private content = new ContentBridge();
+  private diagnostics = new DiagnosticsCollector();
   private operation = Promise.resolve();
   private initialized = false;
 
   register(): void {
+    this.content.setDiagnostics(this.diagnostics);
+
     chrome.runtime.onInstalled.addListener((details) => {
       void this.enqueue(async () => {
         await this.initialize();
@@ -40,8 +63,12 @@ export class BlinkBreakController {
     });
 
     chrome.runtime.onStartup.addListener(() => void this.enqueue(() => this.initialize()));
+
     chrome.alarms.onAlarm.addListener((alarm) => {
-      if (alarm.name === SCHEDULER_ALARM) void this.enqueue(() => this.onAlarm());
+      if (alarm.name === SCHEDULER_ALARM) {
+        this.diagnostics.record({ timestamp: Date.now(), kind: "alarm_fired" });
+        void this.enqueue(() => this.onAlarm());
+      }
     });
 
     chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
@@ -56,14 +83,24 @@ export class BlinkBreakController {
     });
 
     chrome.tabs.onActivated.addListener(({ tabId }) => {
-      void this.enqueue(() => this.syncTab(tabId));
+      void this.enqueue(() => this.onTabActivated(tabId));
+    });
+
+    // Handle in-tab navigation (SPA, reload, cross-origin, back/forward).
+    chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
+      // Only act on full page commits, not every loading step.
+      if (changeInfo.status !== "complete") return;
+      void this.enqueue(() => this.onTabNavigated(tabId, tab.url));
     });
 
     chrome.windows.onFocusChanged.addListener(() => {
       void this.enqueue(() => this.syncActiveTab());
     });
 
-    chrome.tabs.onRemoved.addListener((tabId) => this.content.forgetTab(tabId));
+    chrome.tabs.onRemoved.addListener((tabId) => {
+      this.content.forgetTab(tabId);
+      this.diagnostics.record({ timestamp: Date.now(), kind: "tab_closed", tabId });
+    });
 
     chrome.permissions.onAdded.addListener(() =>
       void this.enqueue(() => this.content.syncRegistration()),
@@ -72,6 +109,7 @@ export class BlinkBreakController {
       void this.enqueue(() => this.content.syncRegistration()),
     );
 
+    this.diagnostics.record({ timestamp: Date.now(), kind: "worker_started" });
     void this.enqueue(() => this.initialize());
   }
 
@@ -91,8 +129,9 @@ export class BlinkBreakController {
     const startup = await loadAppSnapshotForStartup(now);
     const state = recoverAppSnapshot(startup.state, now);
     if (startup.needsPersistence || state !== startup.state) await saveAppSnapshot(state);
+    this.diagnostics.noteTimer(state.timer);
     await this.syncRuntime(state);
-    if (["break_active"].includes(state.timer.status)) {
+    if (state.timer.status === "break_active") {
       await this.content.showOnActiveTab(state);
     }
     this.initialized = true;
@@ -108,14 +147,32 @@ export class BlinkBreakController {
         return { ok: true, state };
       }
 
-      case "CONTENT_READY": {
+      case "GET_DIAGNOSTICS": {
+        return { ok: true, diagnostics: this.diagnostics.summarize() };
+      }
+
+      // CONTENT_HELLO — replaces CONTENT_READY with explicit handshake.
+      // The content script sends this on load and retries with backoff if
+      // the service worker is still starting. The response carries full sync state.
+      case "CONTENT_HELLO": {
         if (sender.tab?.id === undefined) {
           return { ok: false, error: "Content context rejected" };
         }
-        this.content.noteReady(sender.tab.id);
+        const tabId = sender.tab.id;
+        const access = classifyUrl(sender.tab.url);
+        this.content.noteReady(tabId, message.instanceId, access);
+        this.diagnostics.record({
+          timestamp: Date.now(),
+          kind: "content_sync_sent",
+          tabId,
+          reason: `access=${access}`,
+        });
         const state = await loadAppSnapshot();
-        await this.content.showOnTab(sender.tab.id, state);
-        return { ok: true, state };
+        await this.content.showOnTab(tabId, state);
+        const trackingEnabled = state.settings.smartInterruptionEnabled;
+        const reportingEnabled =
+          trackingEnabled && state.timer.status === "waiting_for_pause";
+        return { ok: true, state, trackingEnabled, reportingEnabled };
       }
 
       case "ACTIVITY_UPDATE": {
@@ -124,11 +181,32 @@ export class BlinkBreakController {
         }
         const state = await loadAppSnapshot();
         if (state.timer.status === "waiting_for_pause") {
-          const assessment = assessInterruption(
+          const [activeTab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true }).catch(() => []);
+          const access = classifyUrl(activeTab?.url);
+          const context = detectContext(
             message.snapshot,
-            state.settings.sensitivity,
+            activeTab?.url,
+            state.timer.status,
+            access,
           );
-          if (assessment.risk === "low") await this.evaluateDueBreak(message.snapshot, state);
+          const presence = detectPresence(
+            Date.now(),
+            state.timer.exposureLastSampledAt,
+            state.timer.lastPresenceConfirmedAt,
+            message.snapshot,
+          );
+          const decision = assessInterruption({ 
+            presence, 
+            context, 
+            snapshot: message.snapshot, 
+            sensitivity: state.settings.sensitivity,
+            maxDeferralStartedAt: state.timer.maxDeferralStartedAt,
+            returnGraceExpirationAt: state.timer.returnGraceExpirationAt
+          });
+          this.diagnostics.recordDecision(decision);
+          if (decision.action === "show_break") {
+            await this.evaluateDueBreak(message.snapshot, state);
+          }
         } else {
           await this.content.setPauseReportingOnTab(sender.tab.id, false);
         }
@@ -187,8 +265,6 @@ export class BlinkBreakController {
       case "TAKE_BREAK_NOW": {
         const state = await loadAppSnapshot();
         if (state.timer.status === "paused") return { ok: true, state };
-        // Transition directly to break_active — skip the prompt overlay to avoid
-        // showing two dialogs when triggered from the popup "Take a break now" button.
         state.timer = transitionTimer(state.timer, { type: "DUE" }, state.settings);
         state.timer = transitionTimer(state.timer, { type: "START_BREAK" }, state.settings);
         await saveAppSnapshot(state);
@@ -242,7 +318,9 @@ export class BlinkBreakController {
     if (current.timer.status !== "break_active") return { ok: true, state: current };
     const now = Date.now();
     const state = completeBreakInSnapshot(current, elapsedSeconds, now);
+    this.diagnostics.record({ timestamp: now, kind: "break_completed" });
     await saveAppSnapshot(state);
+    this.diagnostics.noteTimer(state.timer);
     await this.syncRuntime(state);
     return { ok: true, state };
   }
@@ -261,54 +339,145 @@ export class BlinkBreakController {
     await this.evaluateDueBreak(undefined, state);
   }
 
+  /**
+   * Core four-concept orchestration point.
+   * Called on alarm, ACTIVITY_UPDATE (when waiting_for_pause), and navigation.
+   */
   private async evaluateDueBreak(
     suppliedSnapshot?: ActivitySnapshot | null,
     suppliedState?: AppSnapshot,
   ): Promise<void> {
     const state = suppliedState ?? (await loadAppSnapshot());
     if (["paused", "break_active"].includes(state.timer.status)) return;
+
     const now = Date.now();
-    if (["counting", "deferred"].includes(state.timer.status) && state.timer.nextBreakDueAt > now) {
-      await this.syncRuntime(state);
-      return;
-    }
 
-    state.timer = transitionTimer(state.timer, { type: "DUE" }, state.settings, now);
-
+    // --- Step 1: Get snapshot and access class ---
     const [activeTab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true }).catch(() => []);
-    const isProtectedSite = isHighPriorityUrl(activeTab?.url);
+    const { snapshot, access } =
+      suppliedSnapshot !== undefined
+        ? { snapshot: suppliedSnapshot, access: classifyUrl(activeTab?.url) }
+        : await this.content.getActiveSnapshot();
 
-    const snapshot =
-      suppliedSnapshot === undefined ? await this.content.getActiveSnapshot() : suppliedSnapshot;
-    const assessment = assessInterruption(snapshot, state.settings.sensitivity, now);
+    // --- Step 2: Presence detection ---
+    const presence = detectPresence(
+      now,
+      state.timer.exposureLastSampledAt,
+      state.timer.lastPresenceConfirmedAt,
+      snapshot,
+    );
+    this.diagnostics.notePresence(presence);
 
-    if (isProtectedSite || (snapshot && (snapshot.isHighPrioritySite || snapshot.workType === "meeting"))) {
-      state.timer = transitionTimer(
-        state.timer,
-        { type: "WAIT_FOR_PAUSE", delayMs: 300_000 },
-        state.settings,
-        now,
-      );
-      await saveTimer(state.timer);
-      await this.syncRuntime(state);
-      return;
-    }
-
-    if (!state.settings.smartInterruptionEnabled || assessment.risk === "low") {
-      state.timer = transitionTimer(state.timer, { type: "START_BREAK" }, state.settings, now);
-      await saveTimer(state.timer);
-      await this.syncRuntime(state);
-      await this.content.showOnActiveTab(state, true);
-      return;
-    }
-
+    // --- Step 3: Exposure update (advance or pause/reset the exposure counter) ---
+    const exposureUpdate = computeExposureUpdate(state.timer, presence, now, state.settings);
     state.timer = transitionTimer(
       state.timer,
-      { type: "WAIT_FOR_PAUSE", delayMs: assessment.nextEvaluationMs },
+      { type: "EXPOSURE_UPDATE", update: exposureUpdate },
       state.settings,
       now,
     );
+
+    if (exposureUpdate.action === "session_reset") {
+      // Long absence — fresh session. No break.
+      state.timer = transitionTimer(state.timer, { type: "SESSION_RESET" }, state.settings, now);
+      this.diagnostics.record({ timestamp: now, kind: "long_absence_reset", reason: exposureUpdate.reason });
+      await saveTimer(state.timer);
+      this.diagnostics.noteTimer(state.timer);
+      await this.syncRuntime(state);
+      return;
+    }
+
+    if (exposureUpdate.action === "pause") {
+      // Regular absence — push timer forward, no break.
+      this.diagnostics.record({ timestamp: now, kind: "absence_detected", reason: exposureUpdate.reason });
+      await saveTimer(state.timer);
+      this.diagnostics.noteTimer(state.timer);
+      await this.syncRuntime(state);
+      return;
+    }
+
+    // --- Step 4: Check if exposure goal is met ---
+    if (!isExposureDue(state.timer)) {
+      // Not enough meaningful screen time yet — keep counting.
+      await saveTimer(state.timer);
+      this.diagnostics.noteTimer(state.timer);
+      await this.syncRuntime(state);
+      return;
+    }
+
+    // Exposure is due — transition to evaluating state.
+    state.timer = transitionTimer(state.timer, { type: "DUE" }, state.settings, now);
+
+    // --- Step 5: Context detection ---
+    const context = detectContext(snapshot, activeTab?.url, state.timer.status, access);
+    this.diagnostics.noteContext(context);
+    this.diagnostics.setActiveTab(activeTab?.id);
+
+    // --- Step 6: Interruption decision ---
+    const decision = assessInterruption(
+      { 
+        presence, 
+        context, 
+        snapshot, 
+        sensitivity: state.settings.sensitivity,
+        maxDeferralStartedAt: state.timer.maxDeferralStartedAt,
+        returnGraceExpirationAt: state.timer.returnGraceExpirationAt
+      },
+      now,
+    );
+    this.diagnostics.recordDecision(decision);
+
+    switch (decision.action) {
+      case "session_reset":
+        state.timer = transitionTimer(state.timer, { type: "SESSION_RESET" }, state.settings, now);
+        this.diagnostics.record({ timestamp: now, kind: "long_absence_reset" });
+        break;
+
+      case "defer_absence":
+        // Push the timer forward; user is absent.
+        state.timer = transitionTimer(
+          state.timer,
+          { type: "WAIT_FOR_PAUSE", delayMs: decision.nextEvaluationMs },
+          state.settings,
+          now,
+        );
+        this.diagnostics.record({ timestamp: now, kind: "absence_detected" });
+        break;
+
+      case "wait_for_context":
+      case "wait_for_pause":
+        state.timer = transitionTimer(
+          state.timer,
+          { type: "WAIT_FOR_PAUSE", delayMs: decision.nextEvaluationMs },
+          state.settings,
+          now,
+        );
+        await this.syncRuntime(state);
+        if (decision.action === "wait_for_pause") {
+          await this.content.setPauseReportingOnActiveTab(
+            state.settings.smartInterruptionEnabled,
+          );
+        }
+        await saveTimer(state.timer);
+        this.diagnostics.noteTimer(state.timer);
+        return;
+
+      case "show_break":
+        state.timer = transitionTimer(state.timer, { type: "START_BREAK" }, state.settings, now);
+        await saveTimer(state.timer);
+        this.diagnostics.noteTimer(state.timer);
+        await this.syncRuntime(state);
+        this.diagnostics.record({ timestamp: now, kind: "break_shown" });
+        await this.content.showOnActiveTab(state, true);
+        return;
+
+      case "continue":
+      default:
+        break;
+    }
+
     await saveTimer(state.timer);
+    this.diagnostics.noteTimer(state.timer);
     await this.syncRuntime(state);
   }
 
@@ -357,11 +526,41 @@ export class BlinkBreakController {
 
   private async syncActiveTab(): Promise<void> {
     const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
-    if (tab?.id !== undefined) await this.syncTab(tab.id);
+    if (tab?.id !== undefined) await this.onTabActivated(tab.id);
   }
 
-  private async syncTab(tabId: number): Promise<void> {
-    await this.content.ensureOnTab(tabId);
+  private async onTabActivated(tabId: number): Promise<void> {
+    const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+    await this.content.ensureOnTab(tabId, tab?.url);
+    this.diagnostics.setActiveTab(tabId);
+    const state = await loadAppSnapshot();
+    await Promise.all([
+      this.content.showOnTab(tabId, state),
+      this.content.setPauseReportingOnTab(
+        tabId,
+        state.settings.smartInterruptionEnabled && state.timer.status === "waiting_for_pause",
+      ),
+    ]);
+  }
+
+  /**
+   * Handle a tab completing navigation (SPA, reload, cross-origin, back/forward).
+   * The content script's previous context is torn down by the browser; a fresh
+   * CONTENT_HELLO handshake will arrive from the new page context.
+   *
+   * We only need to pre-inject if site access is granted and the new URL is injectable.
+   */
+  private async onTabNavigated(tabId: number, url?: string): Promise<void> {
+    this.diagnostics.record({ timestamp: Date.now(), kind: "tab_navigated", tabId, url });
+
+    // Forget the old script instance — a new CONTENT_HELLO will re-register it.
+    // Do NOT call forgetTab() here because the tab still exists; just mark disconnected.
+    const existing = this.content.getTabRecord(tabId);
+    if (existing) existing.connected = false;
+
+    // Attempt injection on the new URL (will skip if restricted).
+    await this.content.ensureOnTab(tabId, url);
+
     const state = await loadAppSnapshot();
     await Promise.all([
       this.content.showOnTab(tabId, state),
@@ -385,5 +584,4 @@ export class BlinkBreakController {
       chrome.action.setTitle({ title: labels[timer.status] ?? "BlinkBreak" }),
     ]);
   }
-
 }

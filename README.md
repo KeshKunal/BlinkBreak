@@ -1,6 +1,8 @@
-# <img src="public/icons/logo.png" alt="BlinkBreak Icon" width="36" height="36" align="top"> BlinkBreak
+# <img src="public/icons/logo.png" alt="BlinkBreak Icon" width="36" height="36" align="top"> BlinkBreak `v1.1.0` (Stable)
 
-**BlinkBreak** is a privacy-first, intelligent Chrome extension that protects your eye health with guided eye resets (20-20-20 rule) without breaking your work flow.
+**Developed by KSquare**
+
+**BlinkBreak** is a tested, stable, privacy-first, and intelligent Chrome extension that protects your eye health with guided eye resets (20-20-20 rule) without breaking your workflow.
 
 ---
 
@@ -17,13 +19,26 @@
 
 ## How to Use
 
-1. **Install locally**:
+### Option 1: Install from Releases (Easiest)
+1. Go to the [Releases page](https://github.com/KeshKunal/BlinkBreak/releases) on GitHub.
+2. Download the latest `BlinkBreak-v1.1.0.zip` file (do **not** download the "Source code" zip).
+3. Unzip the downloaded file.
+4. Open `chrome://extensions` in Chrome, turn on **Developer mode**, click **Load unpacked**, and select the unzipped folder.
+
+### Option 2: Build from Source
+If you downloaded the source code directly or want to build it yourself:
+1. **Install dependencies and build**:
    ```bash
    npm install
-   npm run build
+   npm run package
    ```
-2. Open `chrome://extensions` in Chrome, turn on **Developer mode**, click **Load unpacked**, and select the `dist/` folder.
-3. **Enjoy seamless eye care**: BlinkBreak runs quietly in the background, keeping track of your focus and prompting gentle breaks only at the right moment.
+2. This will generate the `BlinkBreak-v1.1.0.zip` file in the root directory.
+3. Unzip the generated zip file.
+4. Open `chrome://extensions` in Chrome, turn on **Developer mode**, click **Load unpacked**, and select the unzipped folder.
+
+---
+
+**Enjoy seamless eye care**: BlinkBreak runs quietly in the background, keeping track of your focus and prompting gentle breaks only at the right moment.
 
 ---
 

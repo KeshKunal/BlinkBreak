@@ -1,8 +1,9 @@
-import type { ActivitySnapshot, AppSnapshot, UserSettings } from "./types";
+import type { ActivitySnapshot, AppSnapshot, DiagnosticSummary, UserSettings } from "./types";
 
 export type ExtensionRequest =
   | { type: "GET_APP_STATE" }
-  | { type: "CONTENT_READY" }
+  | { type: "GET_DIAGNOSTICS" }
+  | { type: "CONTENT_HELLO"; instanceId: string }
   | { type: "UPDATE_SETTINGS"; patch: Partial<UserSettings> }
   | { type: "SYNC_SITE_ACCESS" }
   | { type: "START_SESSION" }
@@ -16,7 +17,7 @@ export type ExtensionRequest =
   | { type: "GET_ACTIVITY_SNAPSHOT" };
 
 export type BackgroundResponse =
-  | { ok: true; state?: AppSnapshot }
+  | { ok: true; state?: AppSnapshot; diagnostics?: DiagnosticSummary; trackingEnabled?: boolean; reportingEnabled?: boolean }
   | { ok: false; error: string };
 
 export type ContentCommand =
@@ -54,7 +55,7 @@ export function isExtensionRequest(value: unknown): value is ExtensionRequest {
   if (!isRecord(value) || typeof value.type !== "string") return false;
   switch (value.type) {
     case "GET_APP_STATE":
-    case "CONTENT_READY":
+    case "GET_DIAGNOSTICS":
     case "PAUSE_TIMER":
     case "RESUME_TIMER":
     case "TAKE_BREAK_NOW":
@@ -63,6 +64,8 @@ export function isExtensionRequest(value: unknown): value is ExtensionRequest {
     case "SYNC_SITE_ACCESS":
     case "START_SESSION":
       return true;
+    case "CONTENT_HELLO":
+      return typeof value.instanceId === "string" && value.instanceId.length > 0;
     case "UPDATE_SETTINGS":
       return isRecord(value.patch);
     case "DEFER_BREAK":

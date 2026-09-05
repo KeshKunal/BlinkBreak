@@ -1,16 +1,17 @@
-import { useCallback, useEffect, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import {
   ArrowRight,
   Check,
   CirclePause,
   CirclePlay,
   Settings,
+  SignalLow,
 } from "lucide-react";
 import { Brand } from "../shared/components/Brand";
 import { Button } from "../shared/components/Button";
 import { sendRequest } from "../shared/messages";
 import { applyAnimationPreference, applyTheme } from "../shared/theme";
-import type { AppSnapshot, TimerState } from "../shared/types";
+import type { AppSnapshot, DiagnosticSummary, TimerState } from "../shared/types";
 import { usePageVisibilityLifecycle } from "../shared/use-page-visibility";
 
 function formatCountdown(milliseconds: number): string {
@@ -29,30 +30,62 @@ function timerLabel(timer: TimerState): string {
   switch (timer.status) {
     case "paused":
       return "TIME HELD";
-
     default:
       return "NEXT BREAK";
   }
 }
 
+// ---------------------------------------------------------------------------
+// App root
+// ---------------------------------------------------------------------------
+
+const MAX_LOAD_RETRIES = 6;
+const RETRY_DELAY_MS = 800;
+
 export function App() {
   usePageVisibilityLifecycle();
   const [state, setState] = useState<AppSnapshot | null>(null);
+  const [diagnostics, setDiagnostics] = useState<DiagnosticSummary | null>(null);
   const [pending, setPending] = useState<string | null>(null);
-  const [error, setError] = useState(false);
+  const [loadFailed, setLoadFailed] = useState(false);
+  const retryCount = useRef(0);
+
   const theme = state?.settings.theme;
   const animationPreference = state?.settings.animationPreference;
 
   const refresh = useCallback(async () => {
-    const response = await sendRequest({ type: "GET_APP_STATE" });
-    if (response.ok && response.state) {
-      setState(response.state);
-      setError(false);
+    const [stateResp, diagResp] = await Promise.all([
+      sendRequest({ type: "GET_APP_STATE" }),
+      sendRequest({ type: "GET_DIAGNOSTICS" }).catch(() => null),
+    ]);
+    if (stateResp.ok && stateResp.state) {
+      setState(stateResp.state);
+      setLoadFailed(false);
+      retryCount.current = 0;
+    }
+    if (diagResp?.ok && diagResp.diagnostics) {
+      setDiagnostics(diagResp.diagnostics);
     }
   }, []);
 
   useEffect(() => {
-    const initial = window.setTimeout(() => void refresh().catch(() => setError(true)), 0);
+    let retryTimer: number | undefined;
+
+    const tryLoad = async () => {
+      try {
+        await refresh();
+      } catch {
+        retryCount.current += 1;
+        if (retryCount.current >= MAX_LOAD_RETRIES) {
+          setLoadFailed(true);
+          return;
+        }
+        retryTimer = window.setTimeout(() => void tryLoad(), RETRY_DELAY_MS);
+      }
+    };
+
+    const initial = window.setTimeout(() => void tryLoad(), 0);
+
     const onStorage = (
       changes: Record<string, chrome.storage.StorageChange>,
       areaName: string,
@@ -65,8 +98,10 @@ export function App() {
       }
     };
     chrome.storage.onChanged.addListener(onStorage);
+
     return () => {
       window.clearTimeout(initial);
+      window.clearTimeout(retryTimer);
       chrome.storage.onChanged.removeListener(onStorage);
     };
   }, [refresh]);
@@ -87,12 +122,13 @@ export function App() {
     }
   };
 
-  if (error) {
+  // Persistent load failure after all retries — service worker is truly unavailable.
+  if (loadFailed) {
     return (
       <main className="popup popup-message">
         <Brand />
-        <h1>BlinkBreak needs a refresh.</h1>
-        <p>Reload the extension once, and your local rhythm will be restored.</p>
+        <h1>BlinkBreak is starting up.</h1>
+        <p>It should be ready in a moment. Try opening this popup again shortly.</p>
       </main>
     );
   }
@@ -109,6 +145,10 @@ export function App() {
     return <PopupBreakActive state={state} onState={setState} />;
   }
 
+  // Determine whether the current tab has limited page access.
+  const hasLimitedAccess =
+    diagnostics !== null && !diagnostics.isCurrentPageInjectable;
+
   return (
     <main className="popup">
       <header className="popup-header">
@@ -124,6 +164,8 @@ export function App() {
       </header>
 
       <TimerSection key={state.timer.lastTransitionAt} state={state} />
+
+      {hasLimitedAccess && <LimitedAccessChip />}
 
       <div className="primary-actions">
         <Button
@@ -153,6 +195,23 @@ export function App() {
     </main>
   );
 }
+
+// ---------------------------------------------------------------------------
+// Limited page access chip — non-blocking, muted, informational
+// ---------------------------------------------------------------------------
+
+function LimitedAccessChip() {
+  return (
+    <div className="limited-access-chip" aria-label="Limited page access — BlinkBreak is still active">
+      <SignalLow size={12} aria-hidden="true" />
+      <span>Limited page access</span>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Active break view
+// ---------------------------------------------------------------------------
 
 function PopupBreakActive({ state, onState }: { state: AppSnapshot; onState: (state: AppSnapshot) => void }) {
   const [pending, setPending] = useState(false);
@@ -230,6 +289,10 @@ function PopupBreakActive({ state, onState }: { state: AppSnapshot; onState: (st
   );
 }
 
+// ---------------------------------------------------------------------------
+// Hooks
+// ---------------------------------------------------------------------------
+
 function useTimestampClock(active: boolean): number {
   const [now, setNow] = useState(() => Date.now());
 
@@ -268,6 +331,10 @@ function useTimestampClock(active: boolean): number {
 
   return now;
 }
+
+// ---------------------------------------------------------------------------
+// Timer display components
+// ---------------------------------------------------------------------------
 
 function TimerSection({ state }: { state: AppSnapshot }) {
   const clockActive = ["counting", "deferred"].includes(state.timer.status);

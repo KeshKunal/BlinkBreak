@@ -1,5 +1,5 @@
-import { DEFAULT_SETTINGS, createDefaultStats, createDefaultTimer, localDateKey } from "./defaults";
-import type { DailyStats, TimerState, TimerStatus, UserSettings } from "./types";
+import { DEFAULT_SETTINGS, createDefaultStats, createDefaultTimer, localDateKey, MINUTE_MS } from "./defaults";
+import type { DailyStats, PresenceVerdict, TimerState, TimerStatus, UserSettings } from "./types";
 
 const TIMER_STATUSES: TimerStatus[] = [
   "counting",
@@ -10,6 +10,8 @@ const TIMER_STATUSES: TimerStatus[] = [
   "deferred",
   "paused",
 ];
+
+const PRESENCE_VERDICTS: PresenceVerdict[] = ["present", "absent", "long_absence", "unknown"];
 
 function record(value: unknown): Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value)
@@ -97,6 +99,27 @@ export function sanitizeTimer(
         : timestamp(source.activeBreakStartedAt, lastTransitionAt)
       : null;
 
+  const goalMs = settings.breakIntervalMinutes * MINUTE_MS;
+
+  // Sanitize exposure fields — fall back gracefully for pre-upgrade stored state.
+  const exposureGoalMs = finiteNumber(source.exposureGoalMs, goalMs, MINUTE_MS, 120 * MINUTE_MS);
+  const exposureAccumulatedMs = finiteNumber(
+    source.exposureAccumulatedMs,
+    0,
+    0,
+    exposureGoalMs,
+  );
+  const exposureLastSampledAt = timestamp(source.exposureLastSampledAt, fallback.exposureLastSampledAt);
+  const lastPresenceConfirmedAt = timestamp(
+    source.lastPresenceConfirmedAt,
+    fallback.lastPresenceConfirmedAt,
+  );
+  const presenceState: PresenceVerdict = PRESENCE_VERDICTS.includes(
+    source.presenceState as PresenceVerdict,
+  )
+    ? (source.presenceState as PresenceVerdict)
+    : "unknown";
+
   return {
     status,
     sessionStartedAt: timestamp(source.sessionStartedAt, fallback.sessionStartedAt),
@@ -120,6 +143,21 @@ export function sanitizeTimer(
         : finiteNumber(source.remainingWhenPausedMs, 0, 0, 120 * 60_000),
     consecutiveDeferrals: Math.round(finiteNumber(source.consecutiveDeferrals, 0, 0, 99)),
     lastTransitionAt,
+    maxDeferralStartedAt:
+      source.maxDeferralStartedAt === null || source.maxDeferralStartedAt === undefined
+        ? null
+        : timestamp(source.maxDeferralStartedAt, now),
+    returnGraceExpirationAt:
+      source.returnGraceExpirationAt === null || source.returnGraceExpirationAt === undefined
+        ? null
+        : timestamp(source.returnGraceExpirationAt, now),
+    // Exposure tracking
+    exposureAccumulatedMs,
+    exposureGoalMs,
+    exposureLastSampledAt,
+    // Presence tracking
+    lastPresenceConfirmedAt,
+    presenceState,
   };
 }
 

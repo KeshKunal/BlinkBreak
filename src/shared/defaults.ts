@@ -26,17 +26,27 @@ export function createDefaultTimer(
   now = Date.now(),
   settings = DEFAULT_SETTINGS,
 ): TimerState {
+  const goalMs = settings.breakIntervalMinutes * MINUTE_MS;
   return {
     status: "counting",
     sessionStartedAt: now,
     lastBreakCompletedAt: null,
-    nextBreakDueAt: now + settings.breakIntervalMinutes * MINUTE_MS,
+    nextBreakDueAt: now + goalMs,
     breakDeferredUntil: null,
     nextEvaluationAt: null,
     activeBreakStartedAt: null,
     remainingWhenPausedMs: null,
     consecutiveDeferrals: 0,
     lastTransitionAt: now,
+    maxDeferralStartedAt: null,
+    returnGraceExpirationAt: null,
+    // Exposure tracking
+    exposureAccumulatedMs: 0,
+    exposureGoalMs: goalMs,
+    exposureLastSampledAt: now,
+    // Presence tracking
+    lastPresenceConfirmedAt: now,
+    presenceState: "unknown",
   };
 }
 

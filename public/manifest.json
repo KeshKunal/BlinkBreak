@@ -2,7 +2,8 @@
   "manifest_version": 3,
   "name": "BlinkBreak",
   "short_name": "BlinkBreak",
-  "version": "1.0.0",
+  "version": "1.1.0",
+  "author": "KSquare",
   "description": "Eye breaks that wait for a natural pause.",
   "minimum_chrome_version": "120",
   "content_security_policy": {

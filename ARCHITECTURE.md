@@ -11,60 +11,92 @@ BlinkBreak uses four isolated runtimes:
 
 No server exists. Chrome local storage is the only durable data store.
 
-## Module boundaries
+## The four-concept reliability model
 
-- `src/background/timer-engine.ts` is the pure break-state reducer and restart recovery logic.
-- `src/background/interruption-engine.ts` is the pure, interpretable interruption score.
-- `src/background/controller.ts` serializes extension events, persists transitions, schedules alarms, and coordinates tabs.
-- `src/background/content-bridge.ts` owns optional script registration, tab messaging, and overlay delivery. Activity snapshots are request/response values and are not cached by the worker.
-- `src/content/activity-tracker.ts` collects timestamps and booleans only. Signals remain in the page during ordinary browsing; background reporting is enabled only while a due break is waiting for a natural pause, then sends one explicit quiet signal after 15.5 seconds.
-- `src/content/break-surface.ts` owns the prompt, guided break, completion, focus trap, and Shadow DOM design system.
-- `src/shared/storage.ts` is the typed `chrome.storage.local` boundary.
-- `src/shared/validation.ts` repairs untrusted or obsolete stored data.
-- `src/shared/messages.ts` is the allowlisted message protocol and runtime validator.
-- `src/shared/site-access.ts` is the optional-permission boundary.
+BlinkBreak's break timing is based on four independent concepts that must all agree before a break is presented:
+
+**Wall-clock elapsed time alone never causes a break.**
+
+### 1. ExposureTracker (`src/background/exposure-tracker.ts`)
+Accumulates *meaningful screen time* toward the break interval — distinct from wall-clock time. Increments only when the user is confirmed present. Pauses automatically during sleep, absence, or SW unavailability.
+
+### 2. PresenceDetector (`src/shared/presence-detector.ts`)
+Determines whether the user is at the computer. Classifies the elapsed gap since the last exposure sample into:
+- `"present"` — recent confirmed interaction
+- `"absent"` — no interaction for > 10 minutes
+- `"long_absence"` — gap > 2 hours → session reset
+- `"unknown"` — no content script (restricted page); conservative 50% credit applied
+
+### 3. ContextDetector (`src/shared/context-detector.ts`)
+Identifies when interruption is contextually inappropriate regardless of how much exposure has accumulated. Verdicts in priority order: `"blocked"` > `"limited"` > `"busy"` > `"focused"` > `"media"` > `"clear"`.
+
+### 4. InterruptionEngine (`src/background/interruption-engine.ts`)
+The final arbiter. Takes pre-computed presence and context verdicts plus an `ActivitySnapshot` and produces an `InterruptionDecision` with one of: `show_break`, `wait_for_pause`, `wait_for_context`, `defer_absence`, `session_reset`, `continue`.
 
 ## Break lifecycle
 
 ```text
-COUNTING
-   │ due alarm
-   ▼
-EVALUATING ── high/medium risk ──▶ WAITING_FOR_PAUSE
-   │ low risk                              │ quiet signal / alarm
-   ▼                                       └──────────────┐
-PROMPT_READY ◀────────────────────────────────────────────┘
-   │ take break                 │ later
-   ▼                            ▼
-BREAK_ACTIVE                 DEFERRED
-   │ duration / finish           │ due alarm
-   ▼                             └────────▶ EVALUATING
-COUNTING
+ExposureTracker accumulates screen time
+    │ goal met
+    ▼
+PresenceDetector
+    │ long_absence → SESSION_RESET (fresh 15-min interval; no break)
+    │ absent       → DEFER_ABSENCE (push deadline forward; no break)
+    │ present/unknown ↓
+    ▼
+ContextDetector
+    │ blocked  → no break (user paused)
+    │ limited  → no break (restricted page, unknown presence)
+    │ busy     → WAIT_FOR_PAUSE (300s)
+    │ focused  → WAIT_FOR_PAUSE (45s)
+    │ media    → WAIT_FOR_PAUSE (30s)
+    │ clear    ↓
+    ▼
+InterruptionEngine (activity scoring)
+    │ high/medium risk → WAITING_FOR_PAUSE
+    │ low risk / no snapshot → PROMPT_READY
+    ▼
+BREAK_ACTIVE
+    │ duration elapsed / user finishes
+    ▼
+COUNTING (fresh exposure session)
 ```
 
-Pause is an explicit side state. It stores remaining time instead of allowing wall-clock time to keep advancing.
+## Module boundaries
 
-`transitionTimer()` is the single source of truth for lifecycle transitions. UI components never mutate timer state directly.
+- `src/background/timer-engine.ts` is the pure break-state reducer. Includes `SESSION_RESET` and `EXPOSURE_UPDATE` events.
+- `src/background/exposure-tracker.ts` computes presence-aware exposure credits (stateless pure functions).
+- `src/background/interruption-engine.ts` scores activity and produces `InterruptionDecision` given pre-computed presence/context verdicts.
+- `src/background/content-bridge.ts` owns optional script registration, tab messaging, and overlay delivery. Classifies URLs before attempting injection to avoid errors on restricted pages.
+- `src/background/controller.ts` orchestrates the four concepts in `evaluateDueBreak()`. Handles `tabs.onUpdated` for navigation lifecycle and `CONTENT_HELLO` for initialization sync.
+- `src/background/diagnostics.ts` maintains a lightweight in-memory ring buffer for developer diagnostics. Never shown to end users.
+- `src/content/activity-tracker.ts` collects timestamps and booleans only; ordinary activity stays in the page.
+- `src/content/break-surface.ts` owns the prompt, guided break, completion, focus trap, and Shadow DOM design system.
+- `src/content/content.ts` sends `CONTENT_HELLO` with exponential backoff retry (100ms→30s, 8 attempts max) to synchronize with the service worker after navigation or cold start.
+- `src/shared/presence-detector.ts` — pure `detectPresence()` function.
+- `src/shared/context-detector.ts` — pure `detectContext()` function.
+- `src/shared/page-access.ts` — pure `classifyUrl()` / `isInjectable()` for URL injectability classification.
+- `src/shared/browser-compat.ts` — thin `browser` alias over `chrome.*` for Chromium targets.
+- `src/shared/storage.ts` is the typed `chrome.storage.local` boundary.
+- `src/shared/validation.ts` repairs untrusted or obsolete stored data, including the new exposure fields.
+- `src/shared/messages.ts` is the allowlisted message protocol and runtime validator.
+- `src/shared/site-access.ts` is the optional-permission boundary.
 
 ## Scheduling and restart recovery
 
-The worker never relies on a long-lived interval. Each state produces at most one `blinkbreak-scheduler` alarm:
+The worker never relies on a long-lived interval. Each state produces at most one `blinkbreak-scheduler` alarm. On worker restart, `recoverAppSnapshot()` classifies the elapsed gap:
 
-- `counting` and `deferred`: wake at `nextBreakDueAt`;
-- `waiting_for_pause`: wake at `nextEvaluationAt`;
-- `break_active`: wake at the expected completion timestamp;
-- `paused` and `prompt_ready`: no timer alarm is necessary.
+- Gap < 10 min (ABSENCE_THRESHOLD): resume normally; alarm evaluating if deadline passed.
+- Gap 10 min – 2 hours: presence classified as `"absent"`; deadline pushed forward; no break.
+- Gap > 2 hours (LONG_ABSENCE_THRESHOLD): `SESSION_RESET` — fresh session, no overdue break.
 
-Durable timestamps include session start, next due time, deferral, next evaluation, break start, last completion, and pause remainder. On every worker start, `recoverAppSnapshot()` compares those timestamps with the current clock and enters the correct state. If the worker or browser was unavailable when a break completed, recovery records that completion and its daily statistics exactly once.
-
-Startup only repairs storage when persisted data is missing, malformed, rolled into a new day, or changes during recovery. Existing alarms are reused when their scheduled timestamp is already correct.
+Durable timestamps survive restart. Existing alarms are reused when their scheduled timestamp is already correct.
 
 ## Adaptive interruption score
 
 The engine receives one short-lived `ActivitySnapshot`. It never receives actual keys, pointer coordinates, URLs, DOM text, form values, or page content.
 
 Positive risk weights include:
-
 - very recent or sustained keyboard activity;
 - dense interaction within 30 seconds;
 - recent clicks/scrolling;
@@ -72,28 +104,76 @@ Positive risk weights include:
 - fullscreen state;
 - playing HTML media.
 
-Loss of window focus, page invisibility, and at least 15 seconds without interaction lower the score. `low`, `balanced`, and `high` sensitivity select different transparent thresholds. High risk waits 45 seconds, medium waits 30 seconds, and a low-risk quiet signal can advance immediately without polling.
+Loss of window focus, page invisibility, and at least 15 seconds without interaction lower the score.
 
-When the script cannot run (for example, a browser-owned page), the engine degrades to a fixed local reminder visible through the extension badge and popup.
+## Content script lifecycle (CONTENT_HELLO handshake)
+
+```text
+Page loads
+    ↓
+content.ts sends CONTENT_HELLO (with unique instanceId)
+    ↓
+retry with exponential backoff (100ms → 30s, 8 attempts max)
+    ↓
+Background sends CONTENT_SYNC_STATE (state, trackingEnabled, reportingEnabled)
+    ↓
+Content script applies sync state (no page reload needed)
+```
+
+If communication is lost, the content script degrades silently — the background continues operating and will push commands via `showOnTab` when reconnection occurs.
+
+## Navigation handling
+
+`controller.ts` subscribes to `chrome.tabs.onUpdated` (`changeInfo.status === "complete"`) and `chrome.tabs.onActivated`. On navigation, the previous script context is torn down by the browser; the new context sends a fresh `CONTENT_HELLO`. The background calls `ensureOnTab()` which classifies the URL before attempting injection — restricted pages are skipped without error.
+
+## Restricted pages
+
+`classifyUrl()` classifies any URL before injection is attempted:
+- `"injectable"` — normal http/https
+- `"restricted_scheme"` — chrome://, edge://, brave://, about:, data:, file:, view-source:
+- `"extension_page"` — chrome-extension://
+- `"pdf"` — Chrome PDF viewer
+- `"unknown"` — no URL available
+
+When a page is non-injectable:
+- No injection is attempted. No error is thrown.
+- The presence verdict becomes `"unknown"`; conservative 50% exposure credit is applied.
+- The context verdict becomes `"limited"`; no break is shown.
+- The popup shows a muted "Limited page access" chip but remains fully functional.
+
+## Cross-browser compatibility
+
+All targets (Chrome, Edge, Brave, other Chromium browsers) use the same `chrome.*` MV3 API surface. A thin `browser` alias in `src/shared/browser-compat.ts` provides a single adaptation point. No polyfills are included.
+
+The extension requires no `tabs` permission. URL classification for injection decisions uses `sender.tab.url` from `CONTENT_HELLO`, which is available without the `tabs` permission.
 
 ## Optional site access
 
-The install manifest contains no required host patterns and no static content script. After informed consent, BlinkBreak requests `scripting` plus ordinary HTTP/HTTPS origins, registers the packaged `content.js`, and injects only the active eligible tab; registered injection handles later navigations. A global isolated-world marker prevents duplicate listeners.
+The install manifest contains no required host patterns and no static content script. After informed consent, BlinkBreak requests `scripting` plus ordinary HTTP/HTTPS origins, registers the packaged `content.js`, and injects only injectable tabs. A global isolated-world marker prevents duplicate listeners.
 
-Tab injection and settings broadcasts are bounded to avoid startup spikes with large tab sets. The service worker clears snapshot timeouts promptly, does not retain activity history, and replaces one-shot alarms only when their target changes.
+## Timer state model (exposure-aware)
 
-Turning adaptive timing off stops the activity tracker in every injected tab. Removing page access unregisters the dynamic script; fixed scheduling still works.
+`TimerState` carries six new fields:
+- `exposureAccumulatedMs` — meaningful screen time accumulated toward the current break interval.
+- `exposureGoalMs` — target (mirrors `breakIntervalMinutes × 60_000`).
+- `exposureLastSampledAt` — when exposure was last updated; gap detection uses this.
+- `lastPresenceConfirmedAt` — last timestamp of confirmed user presence.
+- `presenceState` — last known presence verdict (persisted for diagnostics).
+
+`nextBreakDueAt` is now a derived scheduling convenience field, not the source of truth for break decisions.
+
+## Diagnostics
+
+`DiagnosticsCollector` maintains an in-memory ring buffer (last 50 events). The `GET_DIAGNOSTICS` message returns a `DiagnosticSummary` answering: is the current page injectable, is the content script connected, what is the presence/context verdict, and what is the current exposure progress. Developer-oriented only; never shown to end users.
 
 ## Message security
 
-Every command is a discriminated union and passes `isExtensionRequest()` before the controller sees it. Payload ranges are bounded. Unknown commands are rejected. Pages cannot expose an external connection because the manifest defines no `externally_connectable` entry.
-
-The break surface builds DOM nodes directly and does not inject webpage or user text as HTML.
+Every command is a discriminated union and passes `isExtensionRequest()` before the controller sees it. Payload ranges are bounded. Unknown commands are rejected. `CONTENT_HELLO` carries a required `instanceId` field that is validated before processing.
 
 ## Storage model
 
 - `settings`: validated `UserSettings`.
-- `timer`: validated `TimerState`.
+- `timer`: validated `TimerState` (including new exposure fields; old stored data falls back gracefully).
 - `stats`: one local-date `DailyStats` record that resets without streak pressure.
 
 All reads pass through sanitizers. A malformed field falls back or clamps independently, so one bad value cannot crash the UI.

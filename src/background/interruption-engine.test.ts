@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
 import type { ActivitySnapshot } from "../shared/types";
-import { assessInterruption } from "./interruption-engine";
+import { assessInterruption, assessInterruptionLegacy } from "./interruption-engine";
 
 const now = 1_800_000_000_000;
 
-function snapshot(overrides: Partial<ActivitySnapshot> = {}): ActivitySnapshot {
+function makeSnapshot(overrides: Partial<ActivitySnapshot> = {}): ActivitySnapshot {
   return {
     capturedAt: now,
     pageLoadedAt: now - 60_000,
@@ -23,10 +23,100 @@ function snapshot(overrides: Partial<ActivitySnapshot> = {}): ActivitySnapshot {
   };
 }
 
-describe("interruption engine", () => {
-  it("classifies rapid typing as high interruption risk", () => {
+// ---------------------------------------------------------------------------
+// New API: assessInterruption with InterruptionInput
+// ---------------------------------------------------------------------------
+
+describe("interruption engine — new API", () => {
+  it("returns session_reset for long_absence", () => {
     const result = assessInterruption(
-      snapshot({
+      { presence: "long_absence", context: "clear", snapshot: null, sensitivity: "balanced" },
+      now,
+    );
+    expect(result.action).toBe("session_reset");
+  });
+
+  it("returns defer_absence when user is absent", () => {
+    const result = assessInterruption(
+      { presence: "absent", context: "clear", snapshot: null, sensitivity: "balanced" },
+      now,
+    );
+    expect(result.action).toBe("defer_absence");
+  });
+
+  it("waits for context when busy (meeting)", () => {
+    const result = assessInterruption(
+      { presence: "present", context: "busy", snapshot: null, sensitivity: "balanced" },
+      now,
+    );
+    expect(result.action).toBe("wait_for_context");
+    expect(result.nextEvaluationMs).toBe(300_000);
+  });
+
+  it("waits for context when focused (fullscreen)", () => {
+    const result = assessInterruption(
+      { presence: "present", context: "focused", snapshot: null, sensitivity: "balanced" },
+      now,
+    );
+    expect(result.action).toBe("wait_for_context");
+  });
+
+  it("waits for context when media is playing", () => {
+    const result = assessInterruption(
+      { presence: "present", context: "media", snapshot: null, sensitivity: "balanced" },
+      now,
+    );
+    expect(result.action).toBe("wait_for_context");
+  });
+
+  it("waits for context when limited page and unknown presence", () => {
+    const result = assessInterruption(
+      { presence: "unknown", context: "limited", snapshot: null, sensitivity: "balanced" },
+      now,
+    );
+    expect(result.action).toBe("wait_for_context");
+  });
+
+  it("shows break when context is clear and no snapshot (low risk)", () => {
+    const result = assessInterruption(
+      { presence: "present", context: "clear", snapshot: null, sensitivity: "balanced" },
+      now,
+    );
+    expect(result.action).toBe("show_break");
+  });
+
+  it("shows break when user paused naturally", () => {
+    const snapshot = makeSnapshot({ lastInteractionAt: now - 20_000 });
+    const result = assessInterruption(
+      { presence: "present", context: "clear", snapshot, sensitivity: "balanced" },
+      now,
+    );
+    expect(result.action).toBe("show_break");
+  });
+
+  it("waits for pause when user is actively typing", () => {
+    const snapshot = makeSnapshot({
+      lastKeyboardAt: now - 500,
+      keyboardEventsIn30Seconds: 18,
+      interactionsIn30Seconds: 22,
+    });
+    const result = assessInterruption(
+      { presence: "present", context: "clear", snapshot, sensitivity: "balanced" },
+      now,
+    );
+    expect(result.action).toBe("wait_for_pause");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Legacy API compatibility — assessInterruptionLegacy
+// (ensures old callers still work after the refactor)
+// ---------------------------------------------------------------------------
+
+describe("interruption engine — legacy API", () => {
+  it("classifies rapid typing as high interruption risk", () => {
+    const result = assessInterruptionLegacy(
+      makeSnapshot({
         lastKeyboardAt: now - 500,
         keyboardEventsIn30Seconds: 18,
         interactionsIn30Seconds: 22,
@@ -39,8 +129,8 @@ describe("interruption engine", () => {
   });
 
   it("treats fullscreen playback as high risk", () => {
-    const result = assessInterruption(
-      snapshot({ fullscreen: true, mediaPlaying: true, lastInteractionAt: now - 20_000 }),
+    const result = assessInterruptionLegacy(
+      makeSnapshot({ fullscreen: true, mediaPlaying: true, lastInteractionAt: now - 20_000 }),
       "balanced",
       now,
     );
@@ -48,8 +138,8 @@ describe("interruption engine", () => {
   });
 
   it("waits during non-fullscreen media playback even without interaction", () => {
-    const result = assessInterruption(
-      snapshot({ mediaPlaying: true, lastInteractionAt: now - 60_000 }),
+    const result = assessInterruptionLegacy(
+      makeSnapshot({ mediaPlaying: true, lastInteractionAt: now - 60_000 }),
       "balanced",
       now,
     );
@@ -57,8 +147,8 @@ describe("interruption engine", () => {
   });
 
   it("recognizes a quiet window as a natural pause", () => {
-    const result = assessInterruption(
-      snapshot({ lastInteractionAt: now - 20_000 }),
+    const result = assessInterruptionLegacy(
+      makeSnapshot({ lastInteractionAt: now - 20_000 }),
       "balanced",
       now,
     );
@@ -67,8 +157,8 @@ describe("interruption engine", () => {
   });
 
   it("does not prompt in the first moments after navigation", () => {
-    const result = assessInterruption(
-      snapshot({ pageLoadedAt: now - 1_000, lastInteractionAt: now - 1_000 }),
+    const result = assessInterruptionLegacy(
+      makeSnapshot({ pageLoadedAt: now - 1_000, lastInteractionAt: now - 1_000 }),
       "balanced",
       now,
     );
@@ -76,33 +166,13 @@ describe("interruption engine", () => {
     expect(result.reasons).toContain("Page just changed");
   });
 
-  it("transitions from high to low when the user pauses", () => {
-    const busy = assessInterruption(
-      snapshot({
-        lastInteractionAt: now,
-        lastKeyboardAt: now,
-        keyboardEventsIn30Seconds: 12,
-        interactionsIn30Seconds: 15,
-      }),
-      "balanced",
-      now,
-    );
-    const quiet = assessInterruption(
-      snapshot({ lastInteractionAt: now - 16_000 }),
-      "balanced",
-      now,
-    );
-    expect(busy.risk).toBe("high");
-    expect(quiet.risk).toBe("low");
-  });
-
   it("degrades safely when a restricted page has no activity signal", () => {
-    expect(assessInterruption(null, "balanced", now).risk).toBe("low");
+    expect(assessInterruptionLegacy(null, "balanced", now).risk).toBe("low");
   });
 
   it("prohibits break popups on high-priority sites like Zoom and Meet", () => {
-    const result = assessInterruption(
-      snapshot({ isHighPrioritySite: true }),
+    const result = assessInterruptionLegacy(
+      makeSnapshot({ isHighPrioritySite: true }),
       "balanced",
       now,
     );

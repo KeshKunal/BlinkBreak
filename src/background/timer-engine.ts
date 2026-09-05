@@ -1,5 +1,27 @@
-import { MINUTE_MS } from "../shared/defaults";
-import type { AppSnapshot, TimerState, UserSettings } from "../shared/types";
+/**
+ * timer-engine.ts
+ *
+ * Pure break-state reducer and exposure-aware restart recovery.
+ *
+ * Key invariant: wall-clock elapsed time alone does NOT advance the timer
+ * or trigger a break. The ExposureTracker and PresenceDetector mediate
+ * all time-based decisions before reaching this module.
+ *
+ * `recoverAppSnapshot` no longer fires a break simply because a stored
+ * timestamp is in the past. Instead it classifies the elapsed gap as
+ * presence-aware and delegates to the four-concept model.
+ */
+
+import { MINUTE_MS, createDefaultTimer } from "../shared/defaults";
+import { 
+  ABSENCE_THRESHOLD_MS, 
+  LONG_ABSENCE_THRESHOLD_MS,
+  RETURN_GRACE_MIN_MS,
+  RETURN_GRACE_MAX_MS
+} from "../shared/heuristics";
+
+import type { AppSnapshot, PresenceVerdict, TimerState, UserSettings } from "../shared/types";
+import type { ExposureUpdate } from "./exposure-tracker";
 
 export type TimerEvent =
   | { type: "DUE" }
@@ -9,7 +31,9 @@ export type TimerEvent =
   | { type: "PAUSE" }
   | { type: "RESUME" }
   | { type: "COMPLETE" }
-  | { type: "INTERVAL_CHANGED" };
+  | { type: "INTERVAL_CHANGED" }
+  | { type: "EXPOSURE_UPDATE"; update: ExposureUpdate }
+  | { type: "SESSION_RESET" };
 
 export function transitionTimer(
   state: TimerState,
@@ -32,8 +56,9 @@ export function transitionTimer(
       return {
         ...state,
         status: "waiting_for_pause",
-        nextEvaluationAt: now + Math.max(30_000, event.delayMs),
+        nextEvaluationAt: now + Math.max(10_000, event.delayMs), // Cooldowns
         lastTransitionAt: now,
+        maxDeferralStartedAt: state.maxDeferralStartedAt ?? now,
       };
 
     case "START_BREAK":
@@ -44,11 +69,14 @@ export function transitionTimer(
         activeBreakStartedAt: now,
         nextEvaluationAt: null,
         lastTransitionAt: now,
+        maxDeferralStartedAt: null,
+        returnGraceExpirationAt: null,
       };
 
     case "DEFER": {
       if (state.status === "paused") return state;
       const until = now + Math.max(1, Math.min(30, event.minutes)) * MINUTE_MS;
+      const goalMs = state.exposureGoalMs;
       return {
         ...state,
         status: "deferred",
@@ -58,6 +86,12 @@ export function transitionTimer(
         activeBreakStartedAt: null,
         consecutiveDeferrals: state.consecutiveDeferrals + 1,
         lastTransitionAt: now,
+        maxDeferralStartedAt: null,
+        returnGraceExpirationAt: null,
+        // Reset exposure so the deferred interval counts fresh time.
+        exposureAccumulatedMs: 0,
+        exposureGoalMs: goalMs,
+        exposureLastSampledAt: now,
       };
     }
 
@@ -86,6 +120,10 @@ export function transitionTimer(
         remainingWhenPausedMs: null,
         sessionStartedAt: now,
         lastTransitionAt: now,
+        // Resume exposure tracking from the current accumulated value.
+        exposureLastSampledAt: now,
+        lastPresenceConfirmedAt: now,
+        presenceState: "unknown",
       };
 
     case "COMPLETE":
@@ -102,6 +140,14 @@ export function transitionTimer(
         remainingWhenPausedMs: null,
         consecutiveDeferrals: 0,
         lastTransitionAt: now,
+        // Fresh exposure session after completing a break.
+        exposureAccumulatedMs: 0,
+        exposureGoalMs: settings.breakIntervalMinutes * MINUTE_MS,
+        exposureLastSampledAt: now,
+        lastPresenceConfirmedAt: now,
+        presenceState: "unknown",
+        maxDeferralStartedAt: null,
+        returnGraceExpirationAt: null,
       };
 
     case "INTERVAL_CHANGED":
@@ -109,11 +155,48 @@ export function transitionTimer(
       return {
         ...state,
         nextBreakDueAt: now + settings.breakIntervalMinutes * MINUTE_MS,
+        exposureGoalMs: settings.breakIntervalMinutes * MINUTE_MS,
         lastTransitionAt: now,
       };
+
+    case "EXPOSURE_UPDATE": {
+      const u = event.update;
+      return {
+        ...state,
+        nextBreakDueAt: u.newNextBreakDueAt,
+        exposureAccumulatedMs: u.exposureAccumulatedMs,
+        exposureLastSampledAt: u.exposureLastSampledAt,
+        lastPresenceConfirmedAt: u.lastPresenceConfirmedAt,
+        presenceState: u.presenceState,
+        lastTransitionAt: now,
+      };
+    }
+
+    case "SESSION_RESET": {
+      // Long absence: reset to a fresh session. Preserve break history.
+      const fresh = createDefaultTimer(now, settings);
+      return {
+        ...fresh,
+        // Carry over historical fields.
+        lastBreakCompletedAt: state.lastBreakCompletedAt,
+        sessionStartedAt: now,
+        lastTransitionAt: now,
+      };
+    }
   }
 }
 
+// ---------------------------------------------------------------------------
+// Exposure-aware recovery
+// ---------------------------------------------------------------------------
+
+/**
+ * Classifies the elapsed gap at service-worker startup to determine whether
+ * the stored timer state can be resumed or requires adjustment.
+ *
+ * Important: this does NOT fire a break simply because nextBreakDueAt is in
+ * the past. It checks the gap against absence thresholds first.
+ */
 export function recoverTimer(
   state: TimerState,
   settings: UserSettings,
@@ -121,16 +204,58 @@ export function recoverTimer(
 ): TimerState {
   if (state.status === "paused") return state;
 
+  // Always complete an in-progress break if its duration has elapsed.
   if (state.status === "break_active") {
     const completionAt = (state.activeBreakStartedAt ?? now) + settings.breakDurationSeconds * 1000;
     if (completionAt > now) return state;
     return transitionTimer(state, { type: "COMPLETE" }, settings, completionAt);
   }
 
-  if (state.status === "waiting_for_pause" && (state.nextEvaluationAt ?? 0) > now) return state;
-  if (["counting", "deferred"].includes(state.status) && state.nextBreakDueAt > now) return state;
+  const gap = Math.max(0, now - state.exposureLastSampledAt);
+
+  // Long absence: full session reset — do not present an overdue break.
+  if (gap >= LONG_ABSENCE_THRESHOLD_MS) {
+    return transitionTimer(state, { type: "SESSION_RESET" }, settings, now);
+  }
+
+  // Regular absence: push the deadline forward so the break is not immediately due.
+  if (gap >= ABSENCE_THRESHOLD_MS) {
+    const remaining = Math.max(0, state.exposureGoalMs - state.exposureAccumulatedMs);
+    
+    // For 30 min-2 hr absence, use a short 30-60 second return grace period.
+    let grace = 0;
+    if (gap >= 30 * 60_000) {
+       const fraction = Math.min(1, Math.max(0, (gap - 30 * 60_000) / (LONG_ABSENCE_THRESHOLD_MS - 30 * 60_000)));
+       grace = RETURN_GRACE_MIN_MS + fraction * (RETURN_GRACE_MAX_MS - RETURN_GRACE_MIN_MS);
+    }
+    
+    return {
+      ...state,
+      nextBreakDueAt: now + remaining,
+      exposureLastSampledAt: now,
+      presenceState: "absent",
+      lastTransitionAt: now,
+      returnGraceExpirationAt: grace > 0 ? now + grace : state.returnGraceExpirationAt,
+    };
+  }
+
+  // Short gap (< 10 min): resume normally. Mark as evaluating if the deadline
+  // has passed (the controller will evaluate break conditions properly).
+  if (["waiting_for_pause"].includes(state.status) && (state.nextEvaluationAt ?? 0) > now) {
+    return state;
+  }
+  if (["counting", "deferred"].includes(state.status) && state.nextBreakDueAt > now) {
+    return state;
+  }
+
+  // Deadline passed within the short-gap window: mark as evaluating.
+  // The controller's evaluateDueBreak will run the four-concept check.
   return transitionTimer(state, { type: "DUE" }, settings, now);
 }
+
+// ---------------------------------------------------------------------------
+// Break completion with statistics
+// ---------------------------------------------------------------------------
 
 export function completeBreakInSnapshot(
   state: AppSnapshot,
@@ -172,4 +297,15 @@ export function recoverAppSnapshot(state: AppSnapshot, now = Date.now()): AppSna
 
   const timer = recoverTimer(state.timer, state.settings, now);
   return timer === state.timer ? state : { ...state, timer };
+}
+
+// ---------------------------------------------------------------------------
+// Presence verdict helper — used by recoverTimer (kept internal)
+// ---------------------------------------------------------------------------
+
+/** @internal Exported only for tests. */
+export function classifyGap(gapMs: number): PresenceVerdict {
+  if (gapMs >= LONG_ABSENCE_THRESHOLD_MS) return "long_absence";
+  if (gapMs >= ABSENCE_THRESHOLD_MS) return "absent";
+  return "unknown";
 }
